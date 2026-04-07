@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from 'react'
 import { usePrometheusStore } from '@/lib/prometheus-store'
 import { FileExplorer } from '@/components/prometheus/file-explorer'
 import { ConfigTree } from '@/components/prometheus/config-tree'
@@ -45,6 +46,34 @@ function ConfigEditor() {
 }
 
 export default function PrometheusConfigEditor() {
+  const { refreshFiles, setActiveFile, undo, redo } = usePrometheusStore()
+
+  useEffect(() => {
+    const bootstrap = async () => {
+      await refreshFiles()
+      const nextFiles = usePrometheusStore.getState().files
+      if (nextFiles.length > 0) {
+        await setActiveFile(nextFiles[0].id)
+      }
+    }
+    void bootstrap()
+  }, [refreshFiles, setActiveFile])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return
+      if (event.key.toLowerCase() === 'z' && event.shiftKey) {
+        event.preventDefault()
+        redo()
+      } else if (event.key.toLowerCase() === 'z') {
+        event.preventDefault()
+        undo()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [undo, redo])
+
   return (
     <div className="flex h-screen flex-col bg-background">
       <TopBar />

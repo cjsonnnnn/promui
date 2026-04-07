@@ -1,12 +1,9 @@
 "use client"
 
 import { usePrometheusStore } from '@/lib/prometheus-store'
-import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import {
-  ChevronDown,
-  ChevronRight,
   Globe,
   Server,
   FileText,
@@ -32,8 +29,6 @@ export function ConfigTree() {
     scrapeConfigs,
     activeSection,
     setActiveSection,
-    collapsedSections,
-    toggleSectionCollapse,
   } = usePrometheusStore()
 
   const treeItems: TreeItem[] = [
@@ -56,7 +51,7 @@ export function ConfigTree() {
     },
     {
       section: 'alerting',
-      label: 'Alerting',
+      label: 'Alerting / Alertmanagers',
       icon: Bell,
       count: config.alerting?.alertmanagers?.length || 0,
     },
@@ -118,8 +113,6 @@ export function ConfigTree() {
             const Icon = item.icon
             const isActive = activeSection === item.section
             const hasData = hasContent(item.section)
-            const isCollapsed = collapsedSections.has(item.section)
-
             return (
               <div key={item.section}>
                 <button
@@ -132,21 +125,6 @@ export function ConfigTree() {
                   )}
                   onClick={() => setActiveSection(item.section)}
                 >
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5 p-0"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      toggleSectionCollapse(item.section)
-                    }}
-                  >
-                    {isCollapsed ? (
-                      <ChevronRight className="h-3.5 w-3.5" />
-                    ) : (
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
                   <Icon className="h-4 w-4 text-muted-foreground" />
                   <span className="flex-1">{item.label}</span>
                   {item.count !== undefined && item.count > 0 && (
@@ -156,36 +134,6 @@ export function ConfigTree() {
                   )}
                 </button>
 
-                {/* Expanded section children for scrape_configs */}
-                {item.section === 'scrape_configs' &&
-                  !isCollapsed &&
-                  scrapeConfigs.length > 0 && (
-                    <div className="ml-6 mt-0.5 space-y-0.5">
-                      {scrapeConfigs.slice(0, 10).map((job) => (
-                        <button
-                          key={job.id}
-                          className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        >
-                          <Server className="h-3 w-3" />
-                          <span className="truncate">{job.job_name}</span>
-                          <Badge
-                            variant="outline"
-                            className="ml-auto h-4 px-1 text-xs"
-                          >
-                            {job.static_configs.reduce(
-                              (sum, sc) => sum + sc.targets.length,
-                              0
-                            )}
-                          </Badge>
-                        </button>
-                      ))}
-                      {scrapeConfigs.length > 10 && (
-                        <div className="px-2 py-1 text-xs text-muted-foreground">
-                          +{scrapeConfigs.length - 10} more...
-                        </div>
-                      )}
-                    </div>
-                  )}
               </div>
             )
           })}

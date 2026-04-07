@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { usePrometheusStore } from '@/lib/prometheus-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,8 +11,9 @@ import {
   FolderOpen,
   Plus,
   RefreshCw,
-  Settings,
   Trash2,
+  Upload,
+  Pencil,
 } from 'lucide-react'
 import {
   Dialog,
@@ -44,23 +45,64 @@ export function FileExplorer() {
     files,
     activeFileId,
     directoryPath,
-    setDirectoryPath,
+    refreshFiles,
     setActiveFile,
     deleteFile,
+    createNewFile,
+    uploadYamlFile,
+    renameFile,
   } = usePrometheusStore()
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [tempPath, setTempPath] = useState(directoryPath)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isNewFileOpen, setIsNewFileOpen] = useState(false)
+  const [newFilename, setNewFilename] = useState('')
+  const [renameTarget, setRenameTarget] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState('')
 
-  const handleSaveSettings = () => {
-    setDirectoryPath(tempPath)
-    setIsSettingsOpen(false)
+  const handleCreate = async () => {
+    const result = await createNewFile(newFilename)
+    if (!result.success) {
+      setErrorMessage(result.error || 'Failed to create file')
+      return
+    }
+    setErrorMessage('')
+    setIsNewFileOpen(false)
+    setNewFilename('')
   }
 
-  const handleDelete = (id: string) => {
-    deleteFile(id)
+  const handleDelete = async (id: string) => {
+    const result = await deleteFile(id)
+    if (!result.success) {
+      setErrorMessage(result.error || 'Failed to delete file')
+    }
     setDeleteConfirm(null)
+  }
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const content = await file.text()
+    const result = await uploadYamlFile(file.name, content)
+    if (!result.success) {
+      setErrorMessage(result.error || 'Failed to upload file')
+    } else {
+      setErrorMessage('')
+    }
+    e.target.value = ''
+  }
+
+  const handleRename = async () => {
+    if (!renameTarget) return
+    const result = await renameFile(renameTarget, renameValue.trim())
+    if (!result.success) {
+      setErrorMessage(result.error || 'Failed to rename file')
+      return
+    }
+    setErrorMessage('')
+    setRenameTarget(null)
+    setRenameValue('')
   }
 
   return (
@@ -72,17 +114,13 @@ export function FileExplorer() {
           <span className="text-sm font-medium">Config Files</span>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setIsSettingsOpen(true)}
-          >
-            <Settings className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => void refreshFiles()}>
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => fileInputRef.current?.click()}>
+            <Upload className="h-3.5 w-3.5" />
+          </Button>
+          <input ref={fileInputRef} type="file" accept=".yml,.yaml" className="hidden" onChange={handleUpload} />
         </div>
       </div>
 
@@ -118,7 +156,7 @@ export function FileExplorer() {
                       ? 'bg-accent text-accent-foreground'
                       : 'hover:bg-muted'
                   )}
-                  onClick={() => setActiveFile(file.id)}
+                  onClick={() => void setActiveFile(file.id)}
                 >
                   <File className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
@@ -137,6 +175,18 @@ export function FileExplorer() {
                     className="h-6 w-6 opacity-0 group-hover:opacity-100"
                     onClick={(e) => {
                       e.stopPropagation()
+                      setRenameTarget(file.id)
+                      setRenameValue(file.filename)
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation()
                       setDeleteConfirm(file.id)
                     }}
                   >
@@ -149,41 +199,44 @@ export function FileExplorer() {
         </div>
       </ScrollArea>
 
-      {/* Add File Button */}
-      <div className="border-t border-border p-2">
-        <Button variant="outline" size="sm" className="w-full gap-2">
+      {errorMessage && <div className="px-3 py-1 text-xs text-destructive">{errorMessage}</div>}
+
+      <div className="border-t border-border p-2 space-y-2">
+        <Button variant="outline" size="sm" className="w-full gap-2" onClick={() => setIsNewFileOpen(true)}>
           <Plus className="h-3.5 w-3.5" />
-          New Config File
+          New File
         </Button>
       </div>
 
-      {/* Settings Dialog */}
-      <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+      <Dialog open={isNewFileOpen} onOpenChange={setIsNewFileOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Directory Settings</DialogTitle>
+            <DialogTitle>Create New YAML File</DialogTitle>
             <DialogDescription>
-              Configure the directory path for Prometheus configuration files.
+              Enter a filename with `.yml` or `.yaml`.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Config Directory Path</label>
-              <Input
-                value={tempPath}
-                onChange={(e) => setTempPath(e.target.value)}
-                placeholder="/etc/prometheus"
-              />
-              <p className="text-xs text-muted-foreground">
-                The directory where your Prometheus config files are stored
-              </p>
-            </div>
+            <Input value={newFilename} onChange={(e) => setNewFilename(e.target.value)} placeholder="prometheus.yml" />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsSettingsOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveSettings}>Save</Button>
+            <Button variant="outline" onClick={() => setIsNewFileOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreate}>Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!renameTarget} onOpenChange={() => setRenameTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename File</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameTarget(null)}>Cancel</Button>
+            <Button onClick={handleRename}>Rename</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

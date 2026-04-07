@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { usePrometheusStore } from '@/lib/prometheus-store'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Copy, Check, AlertCircle, FileCode, Download } from 'lucide-react'
 
 export function YamlPreview() {
@@ -80,7 +79,7 @@ export function YamlPreview() {
     })
   }
 
-  const hasContent = scrapeConfigs.length > 0 || config.global || config.rule_files?.length
+  const hasActiveFile = !!activeFileId
 
   return (
     <div className="flex flex-col h-full bg-card">
@@ -105,7 +104,7 @@ export function YamlPreview() {
             variant="ghost"
             size="sm"
             onClick={handleDownload}
-            disabled={!hasContent}
+            disabled={!hasActiveFile}
             className="h-8"
           >
             <Download className="h-4 w-4" />
@@ -114,7 +113,7 @@ export function YamlPreview() {
             variant="ghost"
             size="sm"
             onClick={handleCopy}
-            disabled={!hasContent}
+            disabled={!hasActiveFile}
             className="h-8"
           >
             {copied ? (
@@ -150,13 +149,13 @@ export function YamlPreview() {
         </div>
       )}
 
-      <ScrollArea className="flex-1">
-        <div className="p-4">
-          {!hasContent ? (
+      <div className="flex-1 overflow-auto">
+        <div className="p-4 min-h-full">
+          {!hasActiveFile ? (
             <div className="flex flex-col items-center justify-center h-64 text-center">
               <FileCode className="h-12 w-12 text-muted-foreground/30" />
               <p className="mt-4 text-muted-foreground text-sm">
-                Configure your Prometheus settings to see the YAML output
+                Select or create a YAML file to preview configuration
               </p>
             </div>
           ) : (
@@ -165,7 +164,7 @@ export function YamlPreview() {
             </pre>
           )}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   )
 }

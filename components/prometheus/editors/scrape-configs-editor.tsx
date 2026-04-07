@@ -70,6 +70,7 @@ export function ScrapeConfigsEditor() {
   const [isAddingJob, setIsAddingJob] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [showGroupView, setShowGroupView] = useState(false)
+  const allCollapsed = scrapeConfigs.length > 0 && collapsedJobs.size === scrapeConfigs.length
 
   const filteredJobs = useMemo(() => {
     if (!searchQuery) return scrapeConfigs
@@ -171,11 +172,12 @@ export function ScrapeConfigsEditor() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Button variant="outline" size="sm" onClick={collapseAll}>
-          Collapse All
-        </Button>
-        <Button variant="outline" size="sm" onClick={expandAll}>
-          Expand All
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => (allCollapsed ? expandAll() : collapseAll())}
+        >
+          {allCollapsed ? 'Expand All' : 'Collapse All'}
         </Button>
       </div>
 

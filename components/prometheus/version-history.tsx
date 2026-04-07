@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { usePrometheusStore } from '@/lib/prometheus-store'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -16,7 +15,6 @@ import {
 } from '@/components/ui/dialog'
 import {
   History,
-  Save,
   RotateCcw,
   Clock,
   ChevronRight,
@@ -33,18 +31,10 @@ function formatDate(date: Date): string {
 }
 
 export function VersionHistory() {
-  const { versions, saveVersion, restoreVersion } = usePrometheusStore()
+  const { versions, restoreVersion } = usePrometheusStore()
 
   const [isOpen, setIsOpen] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [comment, setComment] = useState('')
   const [restoreConfirm, setRestoreConfirm] = useState<string | null>(null)
-
-  const handleSave = () => {
-    saveVersion(comment || 'Manual save')
-    setComment('')
-    setIsSaving(false)
-  }
 
   const handleRestore = (id: string) => {
     restoreVersion(id)
@@ -80,17 +70,6 @@ export function VersionHistory() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex items-center gap-2 py-2">
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => setIsSaving(true)}
-            >
-              <Save className="mr-2 h-4 w-4" />
-              Save Version
-            </Button>
-          </div>
-
           <ScrollArea className="h-[400px] pr-4">
             {sortedVersions.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -99,7 +78,7 @@ export function VersionHistory() {
                   No versions saved yet
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Save a version to track changes over time
+                  A snapshot is created automatically on every save
                 </p>
               </div>
             ) : (
@@ -154,35 +133,6 @@ export function VersionHistory() {
               </div>
             )}
           </ScrollArea>
-        </DialogContent>
-      </Dialog>
-
-      {/* Save Version Dialog */}
-      <Dialog open={isSaving} onOpenChange={setIsSaving}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Save Version</DialogTitle>
-            <DialogDescription>
-              Add a comment to describe the changes in this version.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <Input
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="e.g., Added new job for vm-grafana"
-              autoFocus
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsSaving(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave}>
-              <Save className="mr-2 h-4 w-4" />
-              Save Version
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
