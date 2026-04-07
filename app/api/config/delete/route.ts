@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { apiFail, apiOk } from '@/lib/api-route'
 import { filePathFor, sanitizeFilename } from '@/lib/config-fs'
 import { deleteHistory } from '@/lib/history-fs'
 
@@ -9,11 +10,8 @@ export async function POST(request: NextRequest) {
     const filename = sanitizeFilename(body?.file ?? '')
     await fs.unlink(filePathFor(filename))
     await deleteHistory(filename)
-    return NextResponse.json({ ok: true, filename })
+    return apiOk({ filename })
   } catch (error) {
-    return NextResponse.json(
-      { error: (error as Error).message || 'Failed to delete config file' },
-      { status: 400 }
-    )
+    return apiFail((error as Error).message || 'Failed to delete config file')
   }
 }

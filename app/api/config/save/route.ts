@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import YAML from 'yaml'
+import { apiFail, apiOk } from '@/lib/api-route'
 import { ensureConfigDir, filePathFor, sanitizeFilename } from '@/lib/config-fs'
 
 export async function POST(request: NextRequest) {
@@ -10,21 +11,17 @@ export async function POST(request: NextRequest) {
     const content = String(body?.content ?? '')
 
     if (!content.trim()) {
-      return NextResponse.json({ error: 'Cannot save empty YAML content' }, { status: 400 })
+      return apiFail('Cannot save empty YAML content')
     }
 
-    // Reject invalid YAML to keep file state consistent.
     YAML.parse(content)
 
     await ensureConfigDir()
     const filePath = filePathFor(filename)
     await fs.writeFile(filePath, content, 'utf8')
 
-    return NextResponse.json({ ok: true, filename })
+    return apiOk({ filename })
   } catch (error) {
-    return NextResponse.json(
-      { error: (error as Error).message || 'Failed to save config file' },
-      { status: 400 }
-    )
+    return apiFail((error as Error).message || 'Failed to save config file')
   }
 }

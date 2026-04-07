@@ -43,6 +43,12 @@ export function YamlPreview() {
     setFlushEditorYamlToStore,
   } = usePrometheusStore()
 
+  const resolvedFile =
+    activeFileId && files.some((f) => f.id === activeFileId)
+      ? files.find((f) => f.id === activeFileId)
+      : undefined
+  const hasResolvedFile = Boolean(resolvedFile)
+
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const editorFocusedRef = useRef(false)
   const [copied, setCopied] = useState(false)
@@ -78,17 +84,23 @@ export function YamlPreview() {
     setLineCount(initial.split("\n").length)
   }
 
-  useEffect(() => validateConfig(), [scrapeConfigs, config, validateConfig])
+  useEffect(() => {
+    if (!hasResolvedFile) {
+      usePrometheusStore.setState({ validationErrors: [] })
+      return
+    }
+    validateConfig()
+  }, [hasResolvedFile, scrapeConfigs, config, validateConfig])
 
   useEffect(() => {
-    if (!activeFileId || !editorRef.current || editorFocusedRef.current) return
+    if (!hasResolvedFile || !editorRef.current || editorFocusedRef.current) return
     const next = exportYaml()
     const cur = editorRef.current.getValue()
     if (cur !== next) {
       editorRef.current.setValue(next)
       setLineCount(next.split("\n").length)
     }
-  }, [activeFileId, config, scrapeConfigs, exportYaml])
+  }, [hasResolvedFile, config, scrapeConfigs, exportYaml])
 
   const handleCopy = async () => {
     const text = editorRef.current?.getValue() ?? exportYaml()
@@ -103,9 +115,9 @@ export function YamlPreview() {
   }
 
   const handleDownload = () => {
+    if (!resolvedFile) return
     const yaml = editorRef.current?.getValue() ?? exportYaml()
-    const filename =
-      files.find((f) => f.id === activeFileId)?.filename || "prometheus.yml"
+    const filename = resolvedFile.filename
     const blob = new Blob([yaml], { type: "text/yaml" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
@@ -117,19 +129,19 @@ export function YamlPreview() {
     URL.revokeObjectURL(url)
   }
 
-  const hasActiveFile = !!activeFileId
-
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <FileCode className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate text-sm font-medium">
-            {files.find((f) => f.id === activeFileId)?.filename || "prometheus.yml"}
+            {resolvedFile?.filename ?? "No file selected"}
           </span>
-          <Badge variant="secondary" className="shrink-0 text-xs">
-            {lineCount} lines
-          </Badge>
+          {hasResolvedFile ? (
+            <Badge variant="secondary" className="shrink-0 text-xs">
+              {lineCount} lines
+            </Badge>
+          ) : null}
           {isLoadingFile && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />}
         </div>
         <div className="flex items-center gap-1">
@@ -146,7 +158,7 @@ export function YamlPreview() {
                   variant="ghost"
                   size="sm"
                   onClick={handleDownload}
-                  disabled={!hasActiveFile}
+                  disabled={!hasResolvedFile}
                   className="h-8"
                 >
                   <Download className="h-4 w-4" />
@@ -162,7 +174,7 @@ export function YamlPreview() {
                   variant="ghost"
                   size="sm"
                   onClick={() => void handleCopy()}
-                  disabled={!hasActiveFile}
+                  disabled={!hasResolvedFile}
                   className="h-8"
                 >
                   {copied ? (
@@ -193,11 +205,11 @@ export function YamlPreview() {
       )}
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        {!hasActiveFile ? (
+        {!hasResolvedFile ? (
           <div className="flex h-full flex-col items-center justify-center p-6 text-center">
             <FileCode className="h-12 w-12 text-muted-foreground/30" />
             <p className="mt-4 text-sm text-muted-foreground">
-              Select or create a YAML file to edit
+              Select or create YAML file
             </p>
           </div>
         ) : (

@@ -1,11 +1,15 @@
-import { NextResponse } from 'next/server'
+import { apiFail, apiOk } from '@/lib/api-route'
 import { getConfigDir } from '@/lib/config-fs'
 
 export async function GET() {
-  const configured = process.env.CONFIG_DIR?.trim()
-  const displayPath = configured && configured.length > 0 ? configured : './configs'
-  return NextResponse.json({
-    displayPath,
-    resolvedPath: getConfigDir(),
-  })
+  try {
+    const configured = process.env.CONFIG_DIR?.trim()
+    const displayPath = configured && configured.length > 0 ? configured : './configs'
+    return apiOk({
+      displayPath,
+      resolvedPath: getConfigDir(),
+    })
+  } catch (error) {
+    return apiFail((error as Error).message || 'Failed to read config info')
+  }
 }

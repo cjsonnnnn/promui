@@ -58,7 +58,6 @@ export function ScrapeConfigsEditor() {
     scrapeConfigs,
     searchQuery,
     setSearchQuery,
-    sortBy,
     setSortBy,
     collapsedJobs,
     toggleCollapse,
@@ -160,13 +159,21 @@ export function ScrapeConfigsEditor() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setSortBy('name')}>
+            <DropdownMenuItem onClick={() => setSortBy('name_asc')}>
               <ArrowUp className="mr-2 h-4 w-4" />
-              Sort by Name
+              Job Name ↑
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setSortBy('ip')}>
+            <DropdownMenuItem onClick={() => setSortBy('name_desc')}>
               <ArrowDown className="mr-2 h-4 w-4" />
-              Sort by IP
+              Job Name ↓
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSortBy('ip_asc')}>
+              <ArrowUp className="mr-2 h-4 w-4" />
+              Target IP ↑
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSortBy('ip_desc')}>
+              <ArrowDown className="mr-2 h-4 w-4" />
+              Target IP ↓
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={sortTargetsInJobs}>

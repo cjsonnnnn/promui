@@ -36,17 +36,24 @@ function formatTs(iso: string): string {
 }
 
 export function VersionHistory() {
-  const { activeFileId, historyVersions, loadHistoryForFile, restoreHistoryEntry } =
+  const { activeFileId, files, historyVersions, loadHistoryForFile, restoreHistoryEntry } =
     usePrometheusStore()
+
+  const hasResolvedFile = Boolean(
+    activeFileId && files.some((f) => f.id === activeFileId)
+  )
+  const resolvedFilename = hasResolvedFile
+    ? files.find((f) => f.id === activeFileId)?.filename
+    : null
 
   const [isOpen, setIsOpen] = useState(false)
   const [restoreConfirm, setRestoreConfirm] = useState<string | null>(null)
 
   useEffect(() => {
-    if (isOpen && activeFileId) {
+    if (isOpen && hasResolvedFile && activeFileId) {
       void loadHistoryForFile(activeFileId)
     }
-  }, [isOpen, activeFileId, loadHistoryForFile])
+  }, [isOpen, hasResolvedFile, activeFileId, loadHistoryForFile])
 
   const handleRestore = (id: string) => {
     restoreHistoryEntry(id)
@@ -67,7 +74,7 @@ export function VersionHistory() {
               variant="outline"
               size="sm"
               onClick={() => setIsOpen(true)}
-              disabled={!activeFileId}
+              disabled={!hasResolvedFile}
             >
               <History className="mr-2 h-4 w-4" />
               History
@@ -91,12 +98,12 @@ export function VersionHistory() {
             </DialogTitle>
             <DialogDescription>
               Snapshots stored locally in <code className="text-xs">.config-history/</code> for{" "}
-              <strong>{activeFileId || "—"}</strong>.
+              <strong>{resolvedFilename || "—"}</strong>.
             </DialogDescription>
           </DialogHeader>
 
           <ScrollArea className="h-[400px] pr-4">
-            {!activeFileId ? (
+            {!hasResolvedFile ? (
               <p className="text-sm text-muted-foreground py-8 text-center">Select a config file first.</p>
             ) : sorted.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">

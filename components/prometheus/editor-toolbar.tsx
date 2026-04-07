@@ -33,12 +33,15 @@ export function EditorToolbar() {
   const [showSaveDiff, setShowSaveDiff] = useState(false)
   const [saveError, setSaveError] = useState("")
 
-  const activeLabel = activeFileId
-    ? files.find((f) => f.id === activeFileId)?.filename ?? activeFileId
-    : "No file selected"
+  const resolvedFile =
+    activeFileId && files.some((f) => f.id === activeFileId)
+      ? files.find((f) => f.id === activeFileId)
+      : undefined
+
+  const activeLabel = resolvedFile?.filename ?? "No file selected"
 
   const canSave =
-    !!activeFileId && validationErrors.length === 0 && !isSaving
+    Boolean(resolvedFile) && validationErrors.length === 0 && !isSaving
 
   const handleValidate = async () => {
     const errs = await validateConfigAsync()
@@ -86,7 +89,7 @@ export function EditorToolbar() {
                 variant="outline"
                 size="sm"
                 onClick={handleValidate}
-                disabled={!activeFileId || isValidating}
+                disabled={!resolvedFile || isValidating}
               >
                 {isValidating ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

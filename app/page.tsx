@@ -1,12 +1,13 @@
 "use client"
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { usePrometheusStore } from '@/lib/prometheus-store'
 import { FileExplorer } from '@/components/prometheus/file-explorer'
 import { ConfigTree } from '@/components/prometheus/config-tree'
 import { TopBar } from '@/components/prometheus/top-bar'
 import { EditorToolbar } from '@/components/prometheus/editor-toolbar'
 import { YamlPreview } from '@/components/prometheus/yaml-preview'
+import { ConfigErrorBoundary } from '@/components/prometheus/config-error-boundary'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { GlobalEditor } from '@/components/prometheus/editors/global-editor'
 import { ScrapeConfigsEditor } from '@/components/prometheus/editors/scrape-configs-editor'
@@ -49,14 +50,21 @@ function ConfigEditor() {
 
 export default function PrometheusConfigEditor() {
   const { refreshFiles, refreshConfigInfo, setActiveFile, undo, redo } = usePrometheusStore()
+  const bootstrapped = useRef(false)
 
   useEffect(() => {
+    if (bootstrapped.current) return
+    bootstrapped.current = true
     const bootstrap = async () => {
-      await refreshConfigInfo()
-      await refreshFiles()
-      const nextFiles = usePrometheusStore.getState().files
-      if (nextFiles.length > 0) {
-        await setActiveFile(nextFiles[0].id)
+      try {
+        await refreshConfigInfo()
+        await refreshFiles()
+        const nextFiles = usePrometheusStore.getState().files
+        if (nextFiles.length > 0) {
+          await setActiveFile(nextFiles[0].id)
+        }
+      } catch {
+        await refreshFiles().catch(() => {})
       }
     }
     void bootstrap()
@@ -84,31 +92,41 @@ export default function PrometheusConfigEditor() {
 
         <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
           <ResizablePanel defaultSize={15} minSize={12} maxSize={25}>
-            <FileExplorer />
+            <ConfigErrorBoundary>
+              <FileExplorer />
+            </ConfigErrorBoundary>
           </ResizablePanel>
 
           <ResizableHandle withHandle />
 
           <ResizablePanel defaultSize={15} minSize={12} maxSize={25}>
-            <ConfigTree />
+            <ConfigErrorBoundary>
+              <ConfigTree />
+            </ConfigErrorBoundary>
           </ResizablePanel>
 
           <ResizableHandle withHandle />
 
           <ResizablePanel defaultSize={45} minSize={30}>
-            <div className="flex h-full min-h-0 flex-col bg-background">
-              <EditorToolbar />
-              <div className="min-h-0 flex-1 overflow-auto">
-                <ConfigEditor />
+            <ConfigErrorBoundary>
+              <div className="flex h-full min-h-0 flex-col bg-background">
+                <EditorToolbar />
+                <div className="min-h-0 flex-1 overflow-auto">
+                  <ConfigErrorBoundary>
+                    <ConfigEditor />
+                  </ConfigErrorBoundary>
+                </div>
               </div>
-            </div>
+            </ConfigErrorBoundary>
           </ResizablePanel>
 
           <ResizableHandle withHandle />
 
           <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
             <div className="h-full min-h-0">
-              <YamlPreview />
+              <ConfigErrorBoundary>
+                <YamlPreview />
+              </ConfigErrorBoundary>
             </div>
           </ResizablePanel>
         </ResizablePanelGroup>

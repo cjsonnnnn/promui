@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { apiFail, apiOk } from '@/lib/api-route'
 import { filePathFor, sanitizeFilename } from '@/lib/config-fs'
 import { renameHistory } from '@/lib/history-fs'
 
@@ -10,16 +11,13 @@ export async function POST(request: NextRequest) {
     const to = sanitizeFilename(body?.to ?? '')
 
     if (from === to) {
-      return NextResponse.json({ ok: true, filename: to })
+      return apiOk({ filename: to })
     }
 
     await fs.rename(filePathFor(from), filePathFor(to))
     await renameHistory(from, to)
-    return NextResponse.json({ ok: true, filename: to })
+    return apiOk({ filename: to })
   } catch (error) {
-    return NextResponse.json(
-      { error: (error as Error).message || 'Failed to rename config file' },
-      { status: 400 }
-    )
+    return apiFail((error as Error).message || 'Failed to rename config file')
   }
 }

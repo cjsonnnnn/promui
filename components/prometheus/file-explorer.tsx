@@ -103,19 +103,17 @@ export function FileExplorer() {
     }
   }
 
-  const resolveName = (raw: string) => {
-    const t = raw.trim()
-    if (!t) return ""
-    return t.endsWith(".yml") || t.endsWith(".yaml") ? t : `${t}.yml`
-  }
-
   const tryCreate = async () => {
-    const name = resolveName(newFilename)
+    const name = newFilename.trim()
     if (!name) {
       setErrorMessage("Filename is required")
       return
     }
-    const result = await createNewFile(newFilename)
+    if (!/\.(yml|yaml)$/i.test(name)) {
+      setErrorMessage("Filename must end with .yml or .yaml")
+      return
+    }
+    const result = await createNewFile(name)
     if (result.conflict) {
       setConflict({ kind: "new", filename: name })
       setConflictRename(name.replace(/\.ya?ml$/i, "") + "-copy.yml")
@@ -133,6 +131,10 @@ export function FileExplorer() {
   }
 
   const tryUpload = async (file: File, content: string) => {
+    if (!/\.(yml|yaml)$/i.test(file.name)) {
+      setErrorMessage("Filename must end with .yml or .yaml")
+      return
+    }
     const result = await uploadYamlFile(file.name, content)
     if (result.conflict) {
       setConflict({ kind: "upload", filename: file.name, yaml: content })
@@ -178,28 +180,14 @@ export function FileExplorer() {
     setRenameValue("")
   }
 
-  const handleConflictReplace = async () => {
-    if (!conflict) return
-    const yaml =
-      conflict.kind === "upload"
-        ? conflict.yaml
-        : YAML.stringify(defaultConfig, { indent: 2 })
-    const saved = await saveYamlToDisk(conflict.filename, yaml)
-    if (!saved.success) {
-      setConflictError(saved.error || "Replace failed")
-      return
-    }
-    setConflict(null)
-    setConflictError("")
-    setIsNewFileOpen(false)
-    setNewFilename("")
-    await setActiveFile(conflict.filename)
-  }
-
   const handleConflictRename = async () => {
     if (!conflict) return
-    const next = resolveName(conflictRename)
-    if (!next || next === conflict.filename) {
+    const next = conflictRename.trim()
+    if (!next || !/\.(yml|yaml)$/i.test(next)) {
+      setConflictError("Filename must end with .yml or .yaml")
+      return
+    }
+    if (next === conflict.filename) {
       setConflictError("Choose a different filename")
       return
     }
@@ -227,6 +215,7 @@ export function FileExplorer() {
     setNewFilename("")
     setConflictError("")
     setErrorMessage("")
+    await refreshFiles()
     await setActiveFile(next)
   }
 
@@ -363,8 +352,7 @@ export function FileExplorer() {
           <DialogHeader>
             <DialogTitle>File already exists</DialogTitle>
             <DialogDescription>
-              <span className="font-mono">{conflict?.filename}</span> is already present. Rename to a new file, replace
-              the existing file, or cancel.
+              <span className="font-mono">{conflict?.filename}</span> is already present. Enter a new filename or cancel.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">
@@ -377,10 +365,7 @@ export function FileExplorer() {
               Cancel
             </Button>
             <Button variant="secondary" onClick={() => void handleConflictRename()}>
-              Save as new name
-            </Button>
-            <Button variant="destructive" onClick={() => void handleConflictReplace()}>
-              Replace existing
+              Rename file
             </Button>
           </DialogFooter>
         </DialogContent>

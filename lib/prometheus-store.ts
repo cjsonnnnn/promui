@@ -17,6 +17,9 @@ import {
   TracingConfig,
 } from './prometheus-types'
 import YAML from 'yaml'
+import { parseApiResponse } from '@/lib/parse-api-response'
+
+export type ScrapeSortMode = 'name_asc' | 'name_desc' | 'ip_asc' | 'ip_desc' | null
 
 type HistorySnapshot = {
   config: PrometheusConfig
@@ -30,7 +33,7 @@ interface PrometheusStore {
   config: PrometheusConfig
   scrapeConfigs: ScrapeConfig[]
   searchQuery: string
-  sortBy: 'name' | 'ip' | null
+  sortBy: ScrapeSortMode
   collapsedJobs: Set<string>
   collapsedSections: Set<string>
   activeSection: ConfigSection | null
@@ -89,7 +92,7 @@ interface PrometheusStore {
   
   // UI actions
   setSearchQuery: (query: string) => void
-  setSortBy: (sort: 'name' | 'ip' | null) => void
+  setSortBy: (sort: ScrapeSortMode) => void
   toggleCollapse: (id: string) => void
   toggleSectionCollapse: (section: string) => void
   collapseAll: () => void
@@ -142,6 +145,19 @@ const defaultConfig: PrometheusConfig = {
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
+function editorResetPatch() {
+  return {
+    activeFileId: null as string | null,
+    config: clone(defaultConfig),
+    scrapeConfigs: [] as ScrapeConfig[],
+    validationErrors: [] as ValidationError[],
+    originalYaml: '',
+    historyVersions: [] as ConfigHistoryEntry[],
+    undoStack: [] as HistorySnapshot[],
+    redoStack: [] as HistorySnapshot[],
+  }
+}
+
 const fromConfig = (config: PrometheusConfig): ScrapeConfig[] =>
   (config.scrape_configs || []).map((sc) => ({ ...sc, id: generateId() }))
 
@@ -182,11 +198,12 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       refreshConfigInfo: async () => {
         try {
           const response = await fetch('/api/config/info')
-          const data = await response.json()
-          if (response.ok && data.displayPath) {
+          const j = await parseApiResponse<{ displayPath?: string }>(response)
+          const path = j.success && j.data?.displayPath ? String(j.data.displayPath) : null
+          if (path) {
             set({
-              configDirectoryDisplay: String(data.displayPath),
-              directoryPath: String(data.displayPath),
+              configDirectoryDisplay: path,
+              directoryPath: path,
             })
           }
         } catch {
@@ -195,10 +212,14 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       },
 
       fileExists: async (filename) => {
-        const response = await fetch(`/api/config/exists?file=${encodeURIComponent(filename)}`)
-        const data = await response.json()
-        if (!response.ok) return false
-        return Boolean(data.exists)
+        try {
+          const response = await fetch(`/api/config/exists?file=${encodeURIComponent(filename)}`)
+          const j = await parseApiResponse<{ exists: boolean }>(response)
+          if (!j.success || j.data === undefined) return false
+          return Boolean(j.data.exists)
+        } catch {
+          return false
+        }
       },
 
       saveYamlToDisk: async (filename, yaml) => {
@@ -207,8 +228,8 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ file: filename, content: yaml }),
         })
-        const data = await response.json()
-        if (!response.ok) return { success: false, error: data.error || 'Failed to save file' }
+        const j = await parseApiResponse(response)
+        if (!j.success) return { success: false, error: j.error || 'Failed to save file' }
         await get().refreshFiles()
         return { success: true }
       },
@@ -216,10 +237,12 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       loadHistoryForFile: async (filename) => {
         try {
           const response = await fetch(`/api/config/history?file=${encodeURIComponent(filename)}`)
-          const data = await response.json()
-          if (!response.ok) throw new Error(data.error)
-          const versions = (data.versions || []) as ConfigHistoryEntry[]
-          set({ historyVersions: versions })
+          const j = await parseApiResponse<{ versions?: ConfigHistoryEntry[] }>(response)
+          if (!j.success || !j.data?.versions) {
+            set({ historyVersions: [] })
+            return
+          }
+          set({ historyVersions: j.data.versions })
         } catch {
           set({ historyVersions: [] })
         }
@@ -229,9 +252,14 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         set({ isLoadingFiles: true })
         try {
           const response = await fetch('/api/config/list')
-          const data = await response.json()
-          if (!response.ok) throw new Error(data.error || 'Failed to load files')
-          const files: ConfigFile[] = (data.files || []).map((file: { filename: string; path: string; size: number; lastModified: string }) => ({
+          const j = await parseApiResponse<{
+            files: Array<{ filename: string; path: string; size: number; lastModified: string }>
+          }>(response)
+          if (!j.success || !j.data?.files) {
+            set({ files: [], ...editorResetPatch(), flushEditorYamlToStore: null })
+            return
+          }
+          const files: ConfigFile[] = j.data.files.map((file) => ({
             id: file.filename,
             filename: file.filename,
             path: file.path,
@@ -239,39 +267,59 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             lastModified: new Date(file.lastModified),
             size: file.size,
           }))
-          set({ files })
+          const { activeFileId } = get()
+          if (files.length === 0) {
+            set({ files, ...editorResetPatch(), flushEditorYamlToStore: null })
+            return
+          }
+          const stillThere = Boolean(activeFileId && files.some((f) => f.id === activeFileId))
+          if (activeFileId && !stillThere) {
+            set({ files, ...editorResetPatch(), flushEditorYamlToStore: null })
+          } else {
+            set({ files })
+          }
+        } catch {
+          set({ files: [], ...editorResetPatch(), flushEditorYamlToStore: null })
         } finally {
           set({ isLoadingFiles: false })
         }
       },
 
       createNewFile: async (filename) => {
-        const safeName = filename.trim().endsWith('.yml') || filename.trim().endsWith('.yaml')
-          ? filename.trim()
-          : `${filename.trim()}.yml`
-        if (!safeName) return { success: false, error: 'Filename is required' }
-        if (await get().fileExists(safeName)) {
+        const t = filename.trim()
+        if (!t) return { success: false, error: 'Filename is required' }
+        if (!/\.(yml|yaml)$/i.test(t)) {
+          return { success: false, error: 'Filename must end with .yml or .yaml' }
+        }
+        if (await get().fileExists(t)) {
           return { success: false, conflict: true, error: 'File already exists' }
         }
         const yaml = YAML.stringify(defaultConfig, { indent: 2 })
-        const saved = await get().saveYamlToDisk(safeName, yaml)
+        const saved = await get().saveYamlToDisk(t, yaml)
         if (!saved.success) return { success: false, error: saved.error }
-        await get().setActiveFile(safeName)
+        await get().refreshFiles()
+        await get().setActiveFile(t)
         return { success: true }
       },
 
       uploadYamlFile: async (filename, yaml) => {
+        const t = filename.trim()
+        if (!t) return { success: false, error: 'Filename is required' }
+        if (!/\.(yml|yaml)$/i.test(t)) {
+          return { success: false, error: 'Filename must end with .yml or .yaml' }
+        }
         try {
           YAML.parse(yaml)
         } catch (error) {
           return { success: false, error: `Invalid YAML: ${(error as Error).message}` }
         }
-        if (await get().fileExists(filename)) {
+        if (await get().fileExists(t)) {
           return { success: false, conflict: true, error: 'File already exists' }
         }
-        const saved = await get().saveYamlToDisk(filename, yaml)
+        const saved = await get().saveYamlToDisk(t, yaml)
         if (!saved.success) return { success: false, error: saved.error }
-        await get().setActiveFile(filename)
+        await get().refreshFiles()
+        await get().setActiveFile(t)
         return { success: true }
       },
 
@@ -283,20 +331,59 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ from: file.filename, to: nextName }),
         })
-        const data = await response.json()
-        if (!response.ok) return { success: false, error: data.error || 'Failed to rename file' }
+        const j = await parseApiResponse(response)
+        if (!j.success) return { success: false, error: j.error || 'Failed to rename file' }
         await get().refreshFiles()
-        await get().setActiveFile(nextName)
+        await get().setActiveFile(nextName.trim())
         return { success: true }
       },
 
       setActiveFile: async (id) => {
+        const list = get().files
+        if (!id || !list.some((f) => f.id === id)) {
+          set({ ...editorResetPatch(), flushEditorYamlToStore: null })
+          return
+        }
         set({ isLoadingFile: true })
         try {
           const response = await fetch(`/api/config/load?file=${encodeURIComponent(id)}`)
-          const data = await response.json()
-          if (!response.ok) throw new Error(data.error || 'Failed to load file')
-          const parsed = YAML.parse(data.content) as PrometheusConfig
+          const j = await parseApiResponse<{ content?: string }>(response)
+          if (!j.success || typeof j.data?.content !== 'string') {
+            set({
+              ...editorResetPatch(),
+              files: get().files,
+              validationErrors: [
+                {
+                  type: 'invalid_yaml',
+                  message: j.error || 'Failed to load file',
+                },
+              ],
+            })
+            return
+          }
+          const content = j.data.content
+          let parsed: PrometheusConfig
+          try {
+            parsed = YAML.parse(content) as PrometheusConfig
+          } catch (error) {
+            set({
+              activeFileId: id,
+              config: clone(defaultConfig),
+              scrapeConfigs: [],
+              originalYaml: content,
+              historyVersions: [],
+              undoStack: [],
+              redoStack: [],
+              validationErrors: [
+                {
+                  type: 'invalid_yaml',
+                  message: `Invalid YAML: ${(error as Error).message}`,
+                },
+              ],
+            })
+            await get().loadHistoryForFile(id)
+            return
+          }
           const config: PrometheusConfig = {
             ...defaultConfig,
             ...parsed,
@@ -307,7 +394,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             activeFileId: id,
             config,
             scrapeConfigs,
-            originalYaml: data.content,
+            originalYaml: content,
             undoStack: [],
             redoStack: [],
           })
@@ -326,27 +413,17 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ file: file.filename }),
         })
-        const data = await response.json()
-        if (!response.ok) return { success: false, error: data.error || 'Failed to delete file' }
+        const j = await parseApiResponse(response)
+        if (!j.success) return { success: false, error: j.error || 'Failed to delete file' }
         await get().refreshFiles()
-        if (get().activeFileId === id) {
-          set({
-            activeFileId: null,
-            config: clone(defaultConfig),
-            scrapeConfigs: [],
-            validationErrors: [],
-            originalYaml: '',
-            historyVersions: [],
-            undoStack: [],
-            redoStack: [],
-          })
-        }
         return { success: true }
       },
 
       saveActiveFile: async () => {
         const { activeFileId } = get()
-        if (!activeFileId) return { success: false, error: 'No active file selected' }
+        if (!activeFileId || !get().files.some((f) => f.id === activeFileId)) {
+          return { success: false, error: 'No active file selected' }
+        }
         set({ isSaving: true })
         try {
           const content = get().exportYaml()
@@ -355,17 +432,17 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ file: activeFileId, content }),
           })
-          const data = await response.json()
-          if (!response.ok) return { success: false, error: data.error || 'Save failed' }
+          const sj = await parseApiResponse(response)
+          if (!sj.success) return { success: false, error: sj.error || 'Save failed' }
           set({ originalYaml: content })
           const histRes = await fetch('/api/config/history', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ file: activeFileId, yaml: content }),
           })
-          if (!histRes.ok) {
-            const err = await histRes.json().catch(() => ({}))
-            return { success: false, error: err.error || 'Saved file but failed to record history' }
+          const hj = await parseApiResponse(histRes)
+          if (!hj.success) {
+            return { success: false, error: hj.error || 'Saved file but failed to record history' }
           }
           await get().loadHistoryForFile(activeFileId)
           await get().refreshFiles()
@@ -554,14 +631,29 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         const snapshot = { config: clone(get().config), scrapeConfigs: clone(get().scrapeConfigs) }
         set((state) => {
           const sortedJobs = [...state.scrapeConfigs]
-          if (sort === 'name') {
-            sortedJobs.sort((a, b) => a.job_name.localeCompare(b.job_name))
-          } else if (sort === 'ip') {
-            sortedJobs.sort((a, b) => {
-              const aTarget = a.static_configs[0]?.targets[0] || ''
-              const bTarget = b.static_configs[0]?.targets[0] || ''
-              return compareIps(extractIp(aTarget), extractIp(bTarget))
-            })
+          switch (sort) {
+            case 'name_asc':
+              sortedJobs.sort((a, b) => a.job_name.localeCompare(b.job_name))
+              break
+            case 'name_desc':
+              sortedJobs.sort((a, b) => b.job_name.localeCompare(a.job_name))
+              break
+            case 'ip_asc':
+              sortedJobs.sort((a, b) => {
+                const aTarget = a.static_configs[0]?.targets[0] || ''
+                const bTarget = b.static_configs[0]?.targets[0] || ''
+                return compareIps(extractIp(aTarget), extractIp(bTarget))
+              })
+              break
+            case 'ip_desc':
+              sortedJobs.sort((a, b) => {
+                const aTarget = a.static_configs[0]?.targets[0] || ''
+                const bTarget = b.static_configs[0]?.targets[0] || ''
+                return compareIps(extractIp(bTarget), extractIp(aTarget))
+              })
+              break
+            default:
+              break
           }
           return {
             scrapeConfigs: sortedJobs,
@@ -683,7 +775,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
 
           // Add as a file
           const newFile: ConfigFile = {
-            id: generateId(),
+            id: filename,
             filename,
             path: `${get().directoryPath}/${filename}`,
             content: config,
@@ -694,8 +786,8 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           set((state) => ({
             config,
             scrapeConfigs,
-            files: [...state.files.filter(f => f.filename !== filename), newFile],
-            activeFileId: newFile.id,
+            files: [...state.files.filter((f) => f.filename !== filename), newFile],
+            activeFileId: filename,
           }))
 
           const errors = get().validateConfig()
