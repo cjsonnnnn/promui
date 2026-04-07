@@ -14,6 +14,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Plus, Trash2, X } from 'lucide-react'
 
 interface JobEditorModalProps {
@@ -28,7 +35,8 @@ interface LabelEntry {
 }
 
 export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps) {
-  const { addScrapeConfig, updateScrapeConfig, validateConfig } = usePrometheusStore()
+  const { addScrapeConfig, updateScrapeConfig, validateConfig, config, addScrapeGroup } =
+    usePrometheusStore()
 
   const [jobName, setJobName] = useState('')
   const [targets, setTargets] = useState<string[]>([''])
@@ -37,6 +45,10 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
   const [metricsPath, setMetricsPath] = useState('')
   const [labels, setLabels] = useState<LabelEntry[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [scrapeGroup, setScrapeGroup] = useState('')
+  const [newGroupName, setNewGroupName] = useState('')
+
+  const metaGroups = config.meta?.groups || []
 
   useEffect(() => {
     if (job) {
@@ -53,6 +65,7 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
       setLabels(
         Object.entries(existingLabels).map(([key, value]) => ({ key, value }))
       )
+      setScrapeGroup((job.scrape_group || '').trim())
     } else {
       resetForm()
     }
@@ -66,6 +79,8 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
     setMetricsPath('')
     setLabels([])
     setErrors({})
+    setScrapeGroup('')
+    setNewGroupName('')
   }
 
   const validateForm = (): boolean => {
@@ -101,6 +116,7 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
       }
     })
 
+    const g = scrapeGroup.trim()
     const newJob: Omit<ScrapeConfig, 'id'> = {
       job_name: jobName.trim(),
       static_configs: [
@@ -112,6 +128,7 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
       ...(scrapeInterval.trim() ? { scrape_interval: scrapeInterval.trim() } : {}),
       ...(scrapeTimeout.trim() ? { scrape_timeout: scrapeTimeout.trim() } : {}),
       ...(metricsPath.trim() ? { metrics_path: metricsPath.trim() } : {}),
+      ...(g ? { scrape_group: g } : { scrape_group: undefined }),
     }
 
     if (job) {
@@ -176,6 +193,58 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
             {errors.jobName && (
               <p className="text-xs text-destructive">{errors.jobName}</p>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Scrape group</Label>
+            <p className="text-xs text-muted-foreground">
+              Groups only affect YAML ordering and comment headers; they are not Prometheus fields.
+            </p>
+            <Select
+              value={scrapeGroup ? scrapeGroup : '_ungrouped'}
+              onValueChange={(v) => setScrapeGroup(v === '_ungrouped' ? '' : v)}
+            >
+              <SelectTrigger className="w-full max-w-md">
+                <SelectValue placeholder="Ungrouped" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_ungrouped">Ungrouped</SelectItem>
+                {metaGroups.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="newGroup" className="text-xs">
+                  New group
+                </Label>
+                <Input
+                  id="newGroup"
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  placeholder="e.g., backend"
+                  className="w-48"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mb-0.5"
+                onClick={() => {
+                  const t = newGroupName.trim()
+                  if (!t) return
+                  addScrapeGroup(t)
+                  setScrapeGroup(t)
+                  setNewGroupName('')
+                }}
+              >
+                Create and select
+              </Button>
+            </div>
           </div>
 
           {/* Targets */}

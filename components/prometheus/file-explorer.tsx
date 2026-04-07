@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   File,
-  Folder,
   FolderOpen,
   Plus,
   RefreshCw,
@@ -80,6 +79,10 @@ export function FileExplorer() {
     uploadYamlFile,
     renameFile,
     saveYamlToDisk,
+    flushEditorYamlToStore,
+    discardUnsavedChanges,
+    hasUnsavedYamlChanges,
+    requestOpenSaveDialog,
   } = usePrometheusStore()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -93,6 +96,18 @@ export function FileExplorer() {
   const [conflictRename, setConflictRename] = useState("")
   const [conflictError, setConflictError] = useState("")
   const [refreshSpin, setRefreshSpin] = useState(false)
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false)
+  const pendingAfterUnsavedRef = useRef<(() => Promise<void>) | null>(null)
+
+  const runWithUnsavedCheck = async (action: () => Promise<void>) => {
+    flushEditorYamlToStore?.()
+    if (!hasUnsavedYamlChanges()) {
+      await action()
+      return
+    }
+    pendingAfterUnsavedRef.current = action
+    setUnsavedDialogOpen(true)
+  }
 
   const handleRefresh = async () => {
     setRefreshSpin(true)
@@ -156,8 +171,11 @@ export function FileExplorer() {
     const file = e.target.files?.[0]
     if (!file) return
     const content = await file.text()
-    await tryUpload(file, content)
-    e.target.value = ""
+    const input = e.target
+    await runWithUnsavedCheck(async () => {
+      await tryUpload(file, content)
+    })
+    input.value = ""
   }
 
   const handleDelete = async (id: string) => {
@@ -271,7 +289,11 @@ export function FileExplorer() {
                     "group flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 transition-colors",
                     activeFileId === file.id ? "bg-accent text-accent-foreground" : "hover:bg-muted"
                   )}
-                  onClick={() => void setActiveFile(file.id)}
+                  onClick={() =>
+                    void runWithUnsavedCheck(async () => {
+                      await setActiveFile(file.id)
+                    })
+                  }
                 >
                   <File className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
@@ -288,8 +310,10 @@ export function FileExplorer() {
                     className="h-6 w-6 opacity-0 group-hover:opacity-100"
                     onClick={(e) => {
                       e.stopPropagation()
-                      setRenameTarget(file.id)
-                      setRenameValue(file.filename)
+                      void runWithUnsavedCheck(async () => {
+                        setRenameTarget(file.id)
+                        setRenameValue(file.filename)
+                      })
                     }}
                   >
                     <Pencil className="h-3.5 w-3.5" />
@@ -300,7 +324,9 @@ export function FileExplorer() {
                     className="h-6 w-6 opacity-0 group-hover:opacity-100"
                     onClick={(e) => {
                       e.stopPropagation()
-                      setDeleteConfirm(file.id)
+                      void runWithUnsavedCheck(async () => {
+                        setDeleteConfirm(file.id)
+                      })
                     }}
                   >
                     <Trash2 className="h-3.5 w-3.5 text-destructive" />
@@ -315,11 +341,75 @@ export function FileExplorer() {
       {errorMessage && <div className="px-3 py-1 text-xs text-destructive">{errorMessage}</div>}
 
       <div className="border-t border-border p-2 space-y-2">
-        <Button variant="outline" size="sm" className="w-full gap-2" onClick={() => setIsNewFileOpen(true)}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full gap-2"
+          onClick={() =>
+            void runWithUnsavedCheck(async () => {
+              setIsNewFileOpen(true)
+            })
+          }
+        >
           <Plus className="h-3.5 w-3.5" />
           New File
         </Button>
       </div>
+
+      <Dialog
+        open={unsavedDialogOpen}
+        onOpenChange={(o) => {
+          if (!o) {
+            pendingAfterUnsavedRef.current = null
+            setUnsavedDialogOpen(false)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Unsaved changes</DialogTitle>
+            <DialogDescription>
+              You have unsaved changes. Save them, discard and continue, or stay on this file.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                pendingAfterUnsavedRef.current = null
+                setUnsavedDialogOpen(false)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const next = pendingAfterUnsavedRef.current
+                pendingAfterUnsavedRef.current = null
+                setUnsavedDialogOpen(false)
+                if (!next) return
+                discardUnsavedChanges()
+                void next()
+              }}
+            >
+              Discard changes
+            </Button>
+            <Button
+              onClick={() => {
+                const next = pendingAfterUnsavedRef.current
+                pendingAfterUnsavedRef.current = null
+                setUnsavedDialogOpen(false)
+                if (!next) return
+                usePrometheusStore.setState({ resumeAfterSave: () => void next() })
+                requestOpenSaveDialog()
+              }}
+            >
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isNewFileOpen} onOpenChange={setIsNewFileOpen}>
         <DialogContent>

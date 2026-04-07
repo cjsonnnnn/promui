@@ -18,6 +18,11 @@ import {
 } from './prometheus-types'
 import YAML from 'yaml'
 import { parseApiResponse } from '@/lib/parse-api-response'
+import { canonicalYamlFingerprint } from '@/lib/yaml-canonical'
+import {
+  extractJobGroupsFromRaw,
+  stringifyScrapeConfigsGrouped,
+} from '@/lib/scrape-yaml-groups'
 
 export type ScrapeSortMode = 'name_asc' | 'name_desc' | 'ip_asc' | 'ip_desc' | null
 
@@ -49,6 +54,19 @@ interface PrometheusStore {
   /** Set by YamlPreview so Save can flush Monaco → store before diff */
   flushEditorYamlToStore: (() => void) | null
   setFlushEditorYamlToStore: (fn: (() => void) | null) => void
+  /** Bumped when Monaco YAML edits (debounced) so Save/dirty UI updates. */
+  yamlTouchCounter: number
+  touchYamlFromEditor: () => void
+  hasUnsavedYamlChanges: () => boolean
+  discardUnsavedChanges: () => void
+  /** After successful save from Save dialog, run once (e.g. switch file). */
+  resumeAfterSave: (() => void) | null
+  requestOpenSaveDialog: () => void
+  clearResumeAfterSave: () => void
+  saveDiffRequestNonce: number
+  addScrapeGroup: (name: string) => void
+  renameScrapeGroup: (from: string, to: string) => void
+  deleteScrapeGroup: (name: string) => void
   undoStack: HistorySnapshot[]
   redoStack: HistorySnapshot[]
   setDirectoryPath: (path: string) => void
@@ -113,6 +131,7 @@ interface PrometheusStore {
   redo: () => void
   loadHistoryForFile: (filename: string) => Promise<void>
   restoreHistoryEntry: (versionId: string) => void
+  isHistoryEntryActiveInEditor: (versionId: string) => boolean
   hydrateFromYaml: (yaml: string) => { success: boolean; error?: string }
 }
 
@@ -155,14 +174,37 @@ function editorResetPatch() {
     historyVersions: [] as ConfigHistoryEntry[],
     undoStack: [] as HistorySnapshot[],
     redoStack: [] as HistorySnapshot[],
+    yamlTouchCounter: 0,
+    resumeAfterSave: null as (() => void) | null,
   }
 }
 
-const fromConfig = (config: PrometheusConfig): ScrapeConfig[] =>
-  (config.scrape_configs || []).map((sc) => ({ ...sc, id: generateId() }))
+function mergeMetaGroups(config: PrometheusConfig, jobs: ScrapeConfig[]): PrometheusConfig {
+  const names = new Set<string>([...(config.meta?.groups || [])])
+  jobs.forEach((j) => {
+    const g = (j.scrape_group || '').trim()
+    if (g) names.add(g)
+  })
+  return {
+    ...config,
+    meta: { groups: Array.from(names).sort() },
+  }
+}
 
-const stripId = (scrapeConfigs: ScrapeConfig[]): Omit<ScrapeConfig, 'id'>[] =>
-  scrapeConfigs.map(({ id, ...rest }) => rest)
+const fromConfig = (config: PrometheusConfig, rawYaml?: string): ScrapeConfig[] => {
+  const arr = (config.scrape_configs || []).map((sc) => ({
+    ...sc,
+    id: generateId(),
+  })) as ScrapeConfig[]
+  if (rawYaml) {
+    const groups = extractJobGroupsFromRaw(rawYaml)
+    arr.forEach((j, i) => {
+      const g = groups[i]
+      if (g) j.scrape_group = g
+    })
+  }
+  return arr
+}
 
 export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       files: [],
@@ -186,6 +228,71 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       isValidating: false,
       flushEditorYamlToStore: null,
       setFlushEditorYamlToStore: (fn) => set({ flushEditorYamlToStore: fn }),
+      yamlTouchCounter: 0,
+      touchYamlFromEditor: () => set((s) => ({ yamlTouchCounter: s.yamlTouchCounter + 1 })),
+      hasUnsavedYamlChanges: () => {
+        get().flushEditorYamlToStore?.()
+        const cur = canonicalYamlFingerprint(get().exportYaml())
+        const sav = canonicalYamlFingerprint(get().originalYaml)
+        return cur !== sav
+      },
+      discardUnsavedChanges: () => {
+        const { originalYaml } = get()
+        get().hydrateFromYaml(originalYaml)
+        set((s) => ({ yamlTouchCounter: s.yamlTouchCounter + 1 }))
+      },
+      resumeAfterSave: null,
+      saveDiffRequestNonce: 0,
+      requestOpenSaveDialog: () =>
+        set((s) => ({ saveDiffRequestNonce: s.saveDiffRequestNonce + 1 })),
+      clearResumeAfterSave: () => set({ resumeAfterSave: null }),
+      addScrapeGroup: (name) => {
+        const t = name.trim()
+        if (!t) return
+        set((state) => {
+          const groups = new Set([...(state.config.meta?.groups || []), t])
+          return {
+            config: {
+              ...state.config,
+              meta: { groups: Array.from(groups).sort() },
+            },
+          }
+        })
+      },
+      renameScrapeGroup: (from, to) => {
+        const f = from.trim()
+        const t = to.trim()
+        if (!f || !t || f === t) return
+        set((state) => ({
+          scrapeConfigs: state.scrapeConfigs.map((j) =>
+            (j.scrape_group || '').trim() === f ? { ...j, scrape_group: t } : j
+          ),
+          config: {
+            ...state.config,
+            meta: {
+              groups: (state.config.meta?.groups || [])
+                .map((g) => (g === f ? t : g))
+                .filter((g, i, a) => a.indexOf(g) === i)
+                .sort(),
+            },
+          },
+        }))
+      },
+      deleteScrapeGroup: (name) => {
+        const n = name.trim()
+        if (!n) return
+        set((state) => ({
+          scrapeConfigs: state.scrapeConfigs.map((j) =>
+            (j.scrape_group || '').trim() === n ? { ...j, scrape_group: undefined } : j
+          ),
+          config: {
+            ...state.config,
+            meta: {
+              groups: (state.config.meta?.groups || []).filter((g) => g !== n),
+            },
+          },
+        }))
+      },
       undoStack: [],
       redoStack: [],
       setDirectoryPath: (path) => set({ directoryPath: path }),
@@ -374,6 +481,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
               historyVersions: [],
               undoStack: [],
               redoStack: [],
+              yamlTouchCounter: get().yamlTouchCounter + 1,
               validationErrors: [
                 {
                   type: 'invalid_yaml',
@@ -384,12 +492,14 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             await get().loadHistoryForFile(id)
             return
           }
-          const config: PrometheusConfig = {
+          delete (parsed as { meta?: unknown }).meta
+          const configBase: PrometheusConfig = {
             ...defaultConfig,
             ...parsed,
             scrape_configs: parsed.scrape_configs || [],
           }
-          const scrapeConfigs = fromConfig(config)
+          const scrapeConfigs = fromConfig(configBase, content)
+          const config = mergeMetaGroups({ ...configBase, meta: undefined }, scrapeConfigs)
           set({
             activeFileId: id,
             config,
@@ -397,6 +507,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             originalYaml: content,
             undoStack: [],
             redoStack: [],
+            yamlTouchCounter: get().yamlTouchCounter + 1,
           })
           await get().loadHistoryForFile(id)
           get().validateConfig()
@@ -446,6 +557,10 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           }
           await get().loadHistoryForFile(activeFileId)
           await get().refreshFiles()
+          const resume = get().resumeAfterSave
+          set({ resumeAfterSave: null })
+          resume?.()
+          set((s) => ({ yamlTouchCounter: s.yamlTouchCounter + 1 }))
           return { success: true }
         } finally {
           set({ isSaving: false })
@@ -740,31 +855,10 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       importYaml: (yamlString, filename = 'prometheus.yml') => {
         try {
           const parsed = YAML.parse(yamlString) as PrometheusConfig
-          
-          const scrapeConfigs: ScrapeConfig[] = (parsed?.scrape_configs || []).map((config) => ({
-            id: generateId(),
-            job_name: config.job_name || '',
-            static_configs: config.static_configs || [{ targets: [] }],
-            scrape_interval: config.scrape_interval,
-            scrape_timeout: config.scrape_timeout,
-            metrics_path: config.metrics_path,
-            scheme: config.scheme,
-            honor_labels: config.honor_labels,
-            honor_timestamps: config.honor_timestamps,
-            params: config.params,
-            basic_auth: config.basic_auth,
-            bearer_token: config.bearer_token,
-            bearer_token_file: config.bearer_token_file,
-            tls_config: config.tls_config,
-            relabel_configs: config.relabel_configs,
-            metric_relabel_configs: config.metric_relabel_configs,
-            sample_limit: config.sample_limit,
-            label_limit: config.label_limit,
-          }))
-
-          const config: PrometheusConfig = {
+          delete (parsed as { meta?: unknown }).meta
+          const configBase: PrometheusConfig = {
             global: parsed.global || defaultConfig.global,
-            scrape_configs: parsed.scrape_configs,
+            scrape_configs: parsed.scrape_configs || [],
             rule_files: parsed.rule_files || [],
             alerting: parsed.alerting,
             remote_write: parsed.remote_write,
@@ -772,8 +866,9 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             storage: parsed.storage,
             tracing: parsed.tracing,
           }
+          const scrapeConfigs = fromConfig(configBase, yamlString)
+          const config = mergeMetaGroups({ ...configBase, meta: undefined }, scrapeConfigs)
 
-          // Add as a file
           const newFile: ConfigFile = {
             id: filename,
             filename,
@@ -788,6 +883,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             scrapeConfigs,
             files: [...state.files.filter((f) => f.filename !== filename), newFile],
             activeFileId: filename,
+            yamlTouchCounter: state.yamlTouchCounter + 1,
           }))
 
           const errors = get().validateConfig()
@@ -802,17 +898,26 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
 
       exportYaml: () => {
         const { config, scrapeConfigs } = get()
-        const exportConfig: PrometheusConfig = {
-          ...config,
-          scrape_configs: stripId(scrapeConfigs),
-        }
-
-        // Remove undefined/empty values for cleaner output
-        const cleanConfig = JSON.parse(JSON.stringify(exportConfig, (_, v) => 
-          v === undefined || (Array.isArray(v) && v.length === 0) ? undefined : v
-        ))
-
-        return YAML.stringify(cleanConfig, { indent: 2 })
+        const exportRest: PrometheusConfig = { ...config }
+        delete exportRest.meta
+        delete exportRest.scrape_configs
+        const cleanRest = JSON.parse(
+          JSON.stringify(exportRest, (_, v) =>
+            v === undefined || (Array.isArray(v) && v.length === 0) ? undefined : v
+          )
+        ) as Record<string, unknown>
+        const head =
+          Object.keys(cleanRest).length > 0
+            ? YAML.stringify(cleanRest, { indent: 2 }).trimEnd()
+            : ''
+        const scrapeInner = stringifyScrapeConfigsGrouped(
+          scrapeConfigs,
+          config.meta?.groups
+        )
+        const scrapeBlock =
+          scrapeInner.length > 0 ? `scrape_configs:\n${scrapeInner}` : 'scrape_configs: []'
+        if (!head) return `${scrapeBlock}\n`
+        return `${head}\n\n${scrapeBlock}\n`
       },
 
       hydrateFromYaml: (yaml) => {
@@ -826,13 +931,16 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             })
             return { success: false, error: 'Invalid root' }
           }
-          const config: PrometheusConfig = {
+          delete (parsed as { meta?: unknown }).meta
+          const configBase: PrometheusConfig = {
             ...defaultConfig,
             ...parsed,
             scrape_configs: parsed?.scrape_configs || [],
           }
-          const scrapeConfigs = fromConfig(config)
+          const scrapeConfigs = fromConfig(configBase, yaml)
+          const config = mergeMetaGroups({ ...configBase, meta: undefined }, scrapeConfigs)
           set({ config, scrapeConfigs })
+          set((s) => ({ yamlTouchCounter: s.yamlTouchCounter + 1 }))
           get().validateConfig()
           return { success: true }
         } catch (error) {
@@ -854,9 +962,19 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         if (!entry) return
         const result = get().hydrateFromYaml(entry.yaml)
         if (result.success) {
-          set({ originalYaml: entry.yaml, undoStack: [], redoStack: [] })
+          set({ undoStack: [], redoStack: [] })
           get().validateConfig()
         }
+      },
+
+      isHistoryEntryActiveInEditor: (versionId) => {
+        const entry = get().historyVersions.find((v) => v.id === versionId)
+        if (!entry) return false
+        get().flushEditorYamlToStore?.()
+        return (
+          canonicalYamlFingerprint(entry.yaml) ===
+          canonicalYamlFingerprint(get().exportYaml())
+        )
       },
 
       validateConfigAsync: async () => {

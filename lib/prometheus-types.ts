@@ -9,10 +9,15 @@ export interface StaticConfig {
   labels?: Record<string, string>
 }
 
+/** UI-only; never written as a Prometheus field (ordering via comments in YAML). */
+export type ScrapeGroupName = string
+
 // Full ScrapeConfig with all Prometheus options
 export interface ScrapeConfig {
   id: string
   job_name: string
+  /** Optional scrape group (app UI only; reflected as `# ========= name =========` in YAML). */
+  scrape_group?: ScrapeGroupName
   static_configs: StaticConfig[]
   scrape_interval?: string
   scrape_timeout?: string
@@ -153,9 +158,17 @@ export interface RuleFile {
   path: string
 }
 
+/** App-only metadata; stripped before persisting YAML to disk. */
+export interface PrometheusConfigMeta {
+  /** Ordered group names for scrape job organization (UI). */
+  groups?: string[]
+}
+
 // Full Prometheus config
 export interface PrometheusConfig {
   global?: GlobalConfig
+  /** Not written to prometheus.yml; kept in memory for group UI only. */
+  meta?: PrometheusConfigMeta
   scrape_configs?: Omit<ScrapeConfig, 'id'>[]
   rule_files?: string[]
   alerting?: AlertingConfig

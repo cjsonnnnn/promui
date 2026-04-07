@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { usePrometheusStore } from "@/lib/prometheus-store"
@@ -24,14 +24,24 @@ export function EditorToolbar() {
     saveActiveFile,
     exportYaml,
     originalYaml,
-    refreshFiles,
     isValidating,
     isSaving,
     flushEditorYamlToStore,
+    clearResumeAfterSave,
+    saveDiffRequestNonce,
   } = usePrometheusStore()
+
+  const dirtyProbe = usePrometheusStore((s) => ({
+    yt: s.yamlTouchCounter,
+    sc: s.scrapeConfigs,
+    cfg: s.config,
+    oy: s.originalYaml,
+    af: s.activeFileId,
+  }))
 
   const [showSaveDiff, setShowSaveDiff] = useState(false)
   const [saveError, setSaveError] = useState("")
+  const lastNonce = useRef(0)
 
   const resolvedFile =
     activeFileId && files.some((f) => f.id === activeFileId)
@@ -40,8 +50,25 @@ export function EditorToolbar() {
 
   const activeLabel = resolvedFile?.filename ?? "No file selected"
 
+  const hasUnsaved = useMemo(
+    () => usePrometheusStore.getState().hasUnsavedYamlChanges(),
+    [dirtyProbe]
+  )
+
   const canSave =
-    Boolean(resolvedFile) && validationErrors.length === 0 && !isSaving
+    Boolean(resolvedFile) &&
+    validationErrors.length === 0 &&
+    !isSaving &&
+    hasUnsaved
+
+  useEffect(() => {
+    if (saveDiffRequestNonce > 0 && saveDiffRequestNonce !== lastNonce.current) {
+      lastNonce.current = saveDiffRequestNonce
+      flushEditorYamlToStore?.()
+      setSaveError("")
+      setShowSaveDiff(true)
+    }
+  }, [saveDiffRequestNonce, flushEditorYamlToStore])
 
   const handleValidate = async () => {
     const errs = await validateConfigAsync()
@@ -60,9 +87,8 @@ export function EditorToolbar() {
       toast.error(result.error || "Save failed")
       return
     }
-    setShowSaveDiff(false)
-    await refreshFiles()
     toast.success("File saved")
+    setShowSaveDiff(false)
   }
 
   return (
@@ -127,7 +153,11 @@ export function EditorToolbar() {
 
       <SaveChangesDialog
         open={showSaveDiff}
-        onOpenChange={setShowSaveDiff}
+        onOpenChange={(open) => {
+          setShowSaveDiff(open)
+          if (!open) setSaveError("")
+        }}
+        onClose={() => clearResumeAfterSave()}
         beforeYaml={originalYaml}
         afterYaml={exportYaml()}
         saveError={saveError}

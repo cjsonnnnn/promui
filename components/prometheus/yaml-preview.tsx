@@ -58,6 +58,10 @@ export function YamlPreview() {
     hydrateFromYaml(value)
   }, 400)
 
+  const debouncedTouch = useDebouncedCallback(() => {
+    usePrometheusStore.getState().touchYamlFromEditor()
+  }, 200)
+
   const flushYaml = (value: string) => {
     hydrateFromYaml(value)
   }
@@ -102,12 +106,36 @@ export function YamlPreview() {
     }
   }, [hasResolvedFile, config, scrapeConfigs, exportYaml])
 
+  const copyYamlToClipboard = async (text: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return
+    }
+    await new Promise<void>((resolve, reject) => {
+      const ta = document.createElement("textarea")
+      ta.value = text
+      ta.setAttribute("readonly", "")
+      ta.style.position = "fixed"
+      ta.style.left = "-9999px"
+      document.body.appendChild(ta)
+      ta.select()
+      try {
+        if (!document.execCommand("copy")) reject(new Error("execCommand copy failed"))
+        else resolve()
+      } catch (e) {
+        reject(e)
+      } finally {
+        document.body.removeChild(ta)
+      }
+    })
+  }
+
   const handleCopy = async () => {
     const text = editorRef.current?.getValue() ?? exportYaml()
     try {
-      await navigator.clipboard.writeText(text)
+      await copyYamlToClipboard(text)
       setCopied(true)
-      toast.success("Copied to clipboard")
+      toast.success("Copied YAML to clipboard")
       setTimeout(() => setCopied(false), 2000)
     } catch {
       toast.error("Could not copy to clipboard")
@@ -222,6 +250,7 @@ export function YamlPreview() {
             onChange={(value) => {
               if (value !== undefined) {
                 setLineCount(value.split("\n").length)
+                debouncedTouch()
                 debouncedApply(value)
               }
             }}

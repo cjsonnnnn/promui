@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { usePrometheusStore } from '@/lib/prometheus-store'
 import { ScrapeConfig } from '@/lib/prometheus-types'
 import { Button } from '@/components/ui/button'
@@ -44,6 +44,7 @@ import {
   FolderTree,
   ArrowUp,
   ArrowDown,
+  Layers,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { JobEditorModal } from '../job-editor-modal'
@@ -52,6 +53,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 export function ScrapeConfigsEditor() {
   const {
@@ -67,13 +75,18 @@ export function ScrapeConfigsEditor() {
     duplicateScrapeConfig,
     sortTargetsInJobs,
     normalizeFormatting,
-    groupJobsByPrefix,
+    config,
+    renameScrapeGroup,
+    deleteScrapeGroup,
   } = usePrometheusStore()
 
   const [editingJob, setEditingJob] = useState<ScrapeConfig | null>(null)
   const [isAddingJob, setIsAddingJob] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [showGroupView, setShowGroupView] = useState(false)
+  const [scrapeGroupFilter, setScrapeGroupFilter] = useState<string>('all')
+  const [groupManageOpen, setGroupManageOpen] = useState(false)
+  const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({})
   const allCollapsed = scrapeConfigs.length > 0 && collapsedJobs.size === scrapeConfigs.length
 
   const filteredJobs = useMemo(() => {
@@ -88,10 +101,49 @@ export function ScrapeConfigsEditor() {
     )
   }, [scrapeConfigs, searchQuery])
 
+  const metaGroups = config.meta?.groups || []
+
+  const jobsAfterGroupFilter = useMemo(() => {
+    if (scrapeGroupFilter === 'all') return filteredJobs
+    if (scrapeGroupFilter === '__ungrouped__') {
+      return filteredJobs.filter((j) => !(j.scrape_group || '').trim())
+    }
+    return filteredJobs.filter((j) => (j.scrape_group || '').trim() === scrapeGroupFilter)
+  }, [filteredJobs, scrapeGroupFilter])
+
+  const tableGroupSections = useMemo(() => {
+    const m = new Map<string, ScrapeConfig[]>()
+    for (const job of jobsAfterGroupFilter) {
+      const key = (job.scrape_group || '').trim() || '__ungrouped__'
+      if (!m.has(key)) m.set(key, [])
+      m.get(key)!.push(job)
+    }
+    const named = [...metaGroups.filter((g) => m.has(g)), ...[...m.keys()].filter((k) => k !== '__ungrouped__' && !metaGroups.includes(k)).sort()]
+    const ordered: string[] = [...named]
+    if (m.has('__ungrouped__') && !ordered.includes('__ungrouped__')) {
+      ordered.push('__ungrouped__')
+    }
+    return ordered
+      .filter((k) => m.has(k))
+      .map((key) => ({
+        key,
+        label: key === '__ungrouped__' ? 'Ungrouped' : key,
+        jobs: m.get(key)!,
+      }))
+  }, [jobsAfterGroupFilter, metaGroups])
+
   const groupedJobs = useMemo(() => {
     if (!showGroupView) return null
-    return groupJobsByPrefix()
-  }, [showGroupView, groupJobsByPrefix])
+    const groups = new Map<string, ScrapeConfig[]>()
+    jobsAfterGroupFilter.forEach((job) => {
+      const match = job.job_name.match(/^([a-zA-Z0-9]+)-/)
+      const prefix = match ? match[1] : 'other'
+      const existing = groups.get(prefix) || []
+      existing.push(job)
+      groups.set(prefix, existing)
+    })
+    return groups
+  }, [showGroupView, jobsAfterGroupFilter])
 
   const handleDelete = (id: string) => {
     deleteScrapeConfig(id)
@@ -150,6 +202,26 @@ export function ScrapeConfigsEditor() {
             className="pl-9"
           />
         </div>
+
+        <Select value={scrapeGroupFilter} onValueChange={setScrapeGroupFilter}>
+          <SelectTrigger className="h-9 w-[160px] text-xs">
+            <SelectValue placeholder="Filter by group" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All jobs</SelectItem>
+            <SelectItem value="__ungrouped__">Ungrouped only</SelectItem>
+            {metaGroups.map((g) => (
+              <SelectItem key={g} value={g}>
+                {g}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Button variant="outline" size="sm" onClick={() => setGroupManageOpen(true)}>
+          <Layers className="mr-2 h-4 w-4" />
+          Groups
+        </Button>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -237,28 +309,39 @@ export function ScrapeConfigsEditor() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredJobs.length === 0 ? (
+              {jobsAfterGroupFilter.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="h-24 text-center">
                     <div className="flex flex-col items-center gap-2">
                       <Server className="h-8 w-8 text-muted-foreground/50" />
                       <p className="text-muted-foreground">
-                        {searchQuery ? 'No matching jobs found' : 'No scrape configs defined'}
+                        {searchQuery || scrapeGroupFilter !== 'all'
+                          ? 'No matching jobs found'
+                          : 'No scrape configs defined'}
                       </p>
                     </div>
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredJobs.map((job) => (
-                  <JobTableRow
-                    key={job.id}
-                    job={job}
-                    isCollapsed={collapsedJobs.has(job.id)}
-                    onToggle={() => toggleCollapse(job.id)}
-                    onEdit={() => setEditingJob(job)}
-                    onDuplicate={() => duplicateScrapeConfig(job.id)}
-                    onDelete={() => setDeleteConfirm(job.id)}
-                  />
+                tableGroupSections.map((section) => (
+                  <Fragment key={section.key}>
+                    <TableRow className="bg-muted/40 hover:bg-muted/40">
+                      <TableCell colSpan={7} className="py-2 text-xs font-semibold text-muted-foreground">
+                        {section.label}
+                      </TableCell>
+                    </TableRow>
+                    {section.jobs.map((job) => (
+                      <JobTableRow
+                        key={job.id}
+                        job={job}
+                        isCollapsed={collapsedJobs.has(job.id)}
+                        onToggle={() => toggleCollapse(job.id)}
+                        onEdit={() => setEditingJob(job)}
+                        onDuplicate={() => duplicateScrapeConfig(job.id)}
+                        onDelete={() => setDeleteConfirm(job.id)}
+                      />
+                    ))}
+                  </Fragment>
                 ))
               )}
             </TableBody>
@@ -277,6 +360,77 @@ export function ScrapeConfigsEditor() {
         }}
         job={editingJob}
       />
+
+      <Dialog open={groupManageOpen} onOpenChange={setGroupManageOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Scrape groups</DialogTitle>
+            <DialogDescription>
+              Rename or remove groups. Removing a group unassigns its jobs (they appear as Ungrouped).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2 max-h-[320px] overflow-y-auto">
+            {metaGroups.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No named groups yet. Add one from the job editor.</p>
+            ) : (
+              metaGroups.map((g) => (
+                <div key={g} className="flex flex-col gap-2 rounded-md border border-border p-2">
+                  <div className="font-mono text-sm">{g}</div>
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      className="h-8 flex-1 min-w-[120px]"
+                      placeholder="Rename to…"
+                      value={renameDrafts[g] ?? ''}
+                      onChange={(e) =>
+                        setRenameDrafts((d) => ({ ...d, [g]: e.target.value }))
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={!(renameDrafts[g] || '').trim()}
+                      onClick={() => {
+                        const to = (renameDrafts[g] || '').trim()
+                        if (!to) return
+                        renameScrapeGroup(g, to)
+                        setRenameDrafts((d) => {
+                          const n = { ...d }
+                          delete n[g]
+                          return n
+                        })
+                      }}
+                    >
+                      Rename
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive"
+                      onClick={() => {
+                        deleteScrapeGroup(g)
+                        setRenameDrafts((d) => {
+                          const n = { ...d }
+                          delete n[g]
+                          return n
+                        })
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGroupManageOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation */}
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>

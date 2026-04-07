@@ -71,6 +71,18 @@ export default function PrometheusConfigEditor() {
   }, [refreshFiles, refreshConfigInfo, setActiveFile])
 
   useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      usePrometheusStore.getState().flushEditorYamlToStore?.()
+      if (usePrometheusStore.getState().hasUnsavedYamlChanges()) {
+        e.preventDefault()
+        e.returnValue = ""
+      }
+    }
+    window.addEventListener("beforeunload", onBeforeUnload)
+    return () => window.removeEventListener("beforeunload", onBeforeUnload)
+  }, [])
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey)) return
       if (event.key.toLowerCase() === 'z' && event.shiftKey) {

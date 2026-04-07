@@ -21,32 +21,47 @@ const DiffEditor = dynamic(
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Called whenever the dialog closes (cancel, overlay, escape, or after confirm flow). */
+  onClose?: () => void
   beforeYaml: string
   afterYaml: string
   onConfirm: () => Promise<void>
-  saveError: string
+  saveError?: string
+  title?: string
+  description?: string
+  confirmLabel?: string
+  useGlobalSavingState?: boolean
 }
 
 export function SaveChangesDialog({
   open,
   onOpenChange,
+  onClose,
   beforeYaml,
   afterYaml,
   onConfirm,
-  saveError,
+  saveError = "",
+  title = "Save changes",
+  description = "Compare previous YAML (left) with the YAML to be written (right). Green and red highlights show additions and removals.",
+  confirmLabel = "Confirm save",
+  useGlobalSavingState = true,
 }: Props) {
   const isSaving = usePrometheusStore((s) => s.isSaving)
+  const busy = useGlobalSavingState && isSaving
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) onClose?.()
+    onOpenChange(next)
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[96vw] w-[96vw] h-[90vh] !flex !flex-col gap-2 p-4">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="!max-w-[96vw] w-[96vw] h-[92vh] !flex !flex-col gap-2 p-4">
         <DialogHeader className="shrink-0 space-y-1">
-          <DialogTitle>Save changes</DialogTitle>
-          <DialogDescription>
-            Compare previous YAML (left) with the YAML to be written (right). Green and red highlights show additions and removals.
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="min-h-[65vh] h-[calc(90vh-160px)] rounded-md border border-border overflow-hidden">
+        <div className="min-h-[72vh] h-[calc(92vh-140px)] min-h-0 flex-1 rounded-md border border-border overflow-hidden">
           <DiffEditor
             height="100%"
             language="yaml"
@@ -67,17 +82,17 @@ export function SaveChangesDialog({
           <p className="text-xs text-destructive shrink-0">{saveError}</p>
         ) : null}
         <DialogFooter className="shrink-0 gap-2 sm:gap-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={() => void onConfirm()} disabled={isSaving}>
-            {isSaving ? (
+          <Button onClick={() => void onConfirm()} disabled={busy}>
+            {busy ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Saving…
               </>
             ) : (
-              "Confirm save"
+              confirmLabel
             )}
           </Button>
         </DialogFooter>

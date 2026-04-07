@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { usePrometheusStore } from "@/lib/prometheus-store"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -9,7 +9,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -20,6 +19,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { SaveChangesDialog } from "./save-changes-dialog"
 
 function formatTs(iso: string): string {
   try {
@@ -36,8 +36,19 @@ function formatTs(iso: string): string {
 }
 
 export function VersionHistory() {
-  const { activeFileId, files, historyVersions, loadHistoryForFile, restoreHistoryEntry } =
-    usePrometheusStore()
+  const {
+    activeFileId,
+    files,
+    historyVersions,
+    loadHistoryForFile,
+    restoreHistoryEntry,
+    exportYaml,
+    flushEditorYamlToStore,
+    isHistoryEntryActiveInEditor,
+  } = usePrometheusStore()
+
+  const yamlEditGeneration = usePrometheusStore((s) => s.yamlTouchCounter)
+  const scrapeJobs = usePrometheusStore((s) => s.scrapeConfigs)
 
   const hasResolvedFile = Boolean(
     activeFileId && files.some((f) => f.id === activeFileId)
@@ -47,7 +58,10 @@ export function VersionHistory() {
     : null
 
   const [isOpen, setIsOpen] = useState(false)
-  const [restoreConfirm, setRestoreConfirm] = useState<string | null>(null)
+  const [restoreDiffOpen, setRestoreDiffOpen] = useState(false)
+  const [restoreTargetId, setRestoreTargetId] = useState<string | null>(null)
+  const [beforeRestoreYaml, setBeforeRestoreYaml] = useState("")
+  const [afterRestoreYaml, setAfterRestoreYaml] = useState("")
 
   useEffect(() => {
     if (isOpen && hasResolvedFile && activeFileId) {
@@ -55,18 +69,38 @@ export function VersionHistory() {
     }
   }, [isOpen, hasResolvedFile, activeFileId, loadHistoryForFile])
 
-  const handleRestore = (id: string) => {
-    restoreHistoryEntry(id)
-    setRestoreConfirm(null)
+  const sorted = useMemo(
+    () =>
+      [...historyVersions].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      ),
+    [historyVersions]
+  )
+
+  const beginRestoreDiff = (versionId: string) => {
+    const entry = historyVersions.find((v) => v.id === versionId)
+    if (!entry) return
+    flushEditorYamlToStore?.()
+    setBeforeRestoreYaml(exportYaml())
+    setAfterRestoreYaml(entry.yaml)
+    setRestoreTargetId(versionId)
+    setRestoreDiffOpen(true)
+  }
+
+  const applyRestore = async () => {
+    if (!restoreTargetId) return
+    restoreHistoryEntry(restoreTargetId)
+    setRestoreDiffOpen(false)
+    setRestoreTargetId(null)
     setIsOpen(false)
   }
 
-  const sorted = [...historyVersions].sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  )
-
   return (
     <>
+      <span className="sr-only" aria-hidden>
+        {yamlEditGeneration}
+        {scrapeJobs.length}
+      </span>
       <Tooltip>
         <TooltipTrigger asChild>
           <span>
@@ -90,7 +124,7 @@ export function VersionHistory() {
       </Tooltip>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <History className="h-5 w-5" />
@@ -102,7 +136,7 @@ export function VersionHistory() {
             </DialogDescription>
           </DialogHeader>
 
-          <ScrollArea className="h-[400px] pr-4">
+          <ScrollArea className="max-h-[min(480px,55vh)] pr-4 flex-1">
             {!hasResolvedFile ? (
               <p className="text-sm text-muted-foreground py-8 text-center">Select a config file first.</p>
             ) : sorted.length === 0 ? (
@@ -113,69 +147,76 @@ export function VersionHistory() {
               </div>
             ) : (
               <div className="space-y-2">
-                {sorted.map((version, index) => (
-                  <div
-                    key={version.id}
-                    className={cn(
-                      "group rounded-lg border border-border p-3 transition-colors hover:bg-muted/50",
-                      index === 0 && "border-success/50 bg-success/5"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs text-muted-foreground truncate">
-                            {version.id}
-                          </span>
-                          {index === 0 && (
-                            <Badge variant="outline" className="text-success border-success/50 shrink-0">
-                              Latest
-                            </Badge>
-                          )}
+                {sorted.map((version, index) => {
+                  const isActive = isHistoryEntryActiveInEditor(version.id)
+                  return (
+                    <div
+                      key={version.id}
+                      className={cn(
+                        "group rounded-lg border border-border p-3 transition-colors hover:bg-muted/50",
+                        index === 0 && "border-success/50 bg-success/5",
+                        isActive && "ring-2 ring-chart-2/40"
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-xs text-muted-foreground truncate">
+                              {version.id}
+                            </span>
+                            {index === 0 && (
+                              <Badge variant="outline" className="text-success border-success/50 shrink-0">
+                                Latest
+                              </Badge>
+                            )}
+                            {isActive ? (
+                              <Badge variant="secondary" className="shrink-0">
+                                Currently active
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3 shrink-0" />
+                            {formatTs(version.timestamp)}
+                          </div>
                         </div>
-                        <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-                          <Clock className="h-3 w-3 shrink-0" />
-                          {formatTs(version.timestamp)}
-                        </div>
+                        {!isActive ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0 opacity-0 group-hover:opacity-100"
+                            onClick={() => beginRestoreDiff(version.id)}
+                          >
+                            <RotateCcw className="mr-2 h-4 w-4" />
+                            Restore
+                          </Button>
+                        ) : null}
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0 opacity-0 group-hover:opacity-100"
-                        onClick={() => setRestoreConfirm(version.id)}
-                        disabled={index === 0}
-                      >
-                        <RotateCcw className="mr-2 h-4 w-4" />
-                        Restore
-                      </Button>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </ScrollArea>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!restoreConfirm} onOpenChange={() => setRestoreConfirm(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Restore snapshot</DialogTitle>
-            <DialogDescription>
-              Replace the editor and YAML with this snapshot. Unsaved changes in the editor will be lost.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRestoreConfirm(null)}>
-              Cancel
-            </Button>
-            <Button onClick={() => restoreConfirm && handleRestore(restoreConfirm)}>
-              <RotateCcw className="mr-2 h-4 w-4" />
-              Restore
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SaveChangesDialog
+        open={restoreDiffOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRestoreDiffOpen(false)
+            setRestoreTargetId(null)
+          }
+        }}
+        title="Apply version from history"
+        description="Current working YAML (left) and the selected snapshot (right). Applying only updates the editor until you save."
+        beforeYaml={beforeRestoreYaml}
+        afterYaml={afterRestoreYaml}
+        confirmLabel="Apply version"
+        useGlobalSavingState={false}
+        onConfirm={applyRestore}
+      />
     </>
   )
 }
