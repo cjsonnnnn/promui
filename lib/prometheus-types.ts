@@ -167,7 +167,15 @@ export interface PrometheusConfig {
 
 // Validation
 export interface ValidationError {
-  type: 'duplicate_job' | 'duplicate_target' | 'invalid_yaml' | 'invalid_target' | 'missing_required' | 'invalid_format'
+  type:
+    | 'duplicate_job'
+    | 'duplicate_target'
+    | 'invalid_yaml'
+    | 'invalid_target'
+    | 'missing_required'
+    | 'invalid_format'
+    | 'missing_job_name'
+    | 'empty_targets'
   message: string
   jobName?: string
   target?: string
@@ -185,7 +193,14 @@ export interface ConfigFile {
   size: number
 }
 
-// Version history
+// Version history (persisted under .config-history/{filename}.json)
+export interface ConfigHistoryEntry {
+  id: string
+  timestamp: string
+  yaml: string
+}
+
+// Legacy in-memory shape (kept for typing where needed)
 export interface ConfigVersion {
   id: string
   fileId: string
@@ -193,7 +208,7 @@ export interface ConfigVersion {
   content: PrometheusConfig
   changedSections: string[]
   comment: string
-  snapshot: string // YAML string
+  snapshot: string
 }
 
 // Tree node for navigation

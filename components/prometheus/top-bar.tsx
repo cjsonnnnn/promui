@@ -1,8 +1,7 @@
 "use client"
 
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { useState } from "react"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -10,145 +9,103 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
-import { usePrometheusStore } from '@/lib/prometheus-store'
-import { VersionHistory } from './version-history'
-import { ConfigStats } from './config-stats'
+} from "@/components/ui/dialog"
+import { RefreshCw, Settings } from "lucide-react"
+import { toast } from "sonner"
 import {
-  Save,
-  RefreshCw,
-  AlertCircle,
-  Settings,
-} from 'lucide-react'
-import { Textarea } from '@/components/ui/textarea'
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 export function TopBar() {
-  const {
-    validateConfig,
-    validationErrors,
-    saveActiveFile,
-    exportYaml,
-    originalYaml,
-    activeFileId,
-    refreshFiles,
-  } = usePrometheusStore()
-
-  const [reloadStatus, setReloadStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
-  const [reloadMessage, setReloadMessage] = useState('')
-  const [showSaveDiff, setShowSaveDiff] = useState(false)
-  const [saveError, setSaveError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [errorOpen, setErrorOpen] = useState(false)
+  const [errorDetail, setErrorDetail] = useState("")
 
   const handleReloadPrometheus = async () => {
-    setReloadStatus('loading')
-    setReloadMessage('')
+    setBusy(true)
     try {
-      const response = await fetch('/api/prometheus/reload', { method: 'POST' })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Reload failed')
-      setReloadStatus('success')
-      setReloadMessage('Prometheus reload request sent successfully')
-    } catch (error) {
-      setReloadStatus('error')
-      setReloadMessage((error as Error).message)
+      const response = await fetch("/api/prometheus/reload", {
+        method: "POST",
+        cache: "no-store",
+      })
+      const raw = await response.text()
+      let data: { error?: string; ok?: boolean } = {}
+      if (raw) {
+        try {
+          data = JSON.parse(raw) as { error?: string; ok?: boolean }
+        } catch {
+          data = { error: raw.slice(0, 200) }
+        }
+      }
+      if (!response.ok) {
+        const msg =
+          data.error ||
+          `Reload failed (${response.status}). Is Prometheus running on port 9090?`
+        setErrorDetail(msg)
+        setErrorOpen(true)
+        toast.error("Prometheus reload failed", { description: msg })
+        return
+      }
+      toast.success("Reload request sent to Prometheus")
+    } catch (e) {
+      const msg =
+        (e as Error).message === "Failed to fetch"
+          ? "Network error: could not reach this app’s API. If testing reload from the server, ensure the dev server is running."
+          : (e as Error).message || "Request failed"
+      setErrorDetail(msg)
+      setErrorOpen(true)
+      toast.error("Reload request failed", { description: msg })
     } finally {
-      setTimeout(() => setReloadStatus('idle'), 2500)
+      setBusy(false)
     }
-  }
-
-  const handleSaveConfirm = async () => {
-    const result = await saveActiveFile()
-    if (!result.success) {
-      setSaveError(result.error || 'Save failed')
-      return
-    }
-    setSaveError('')
-    setShowSaveDiff(false)
-    await refreshFiles()
   }
 
   return (
-    <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card">
-      {/* Left side - Logo/Title */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-chart-1 to-chart-2 flex items-center justify-center">
-            <Settings className="h-4 w-4 text-background" />
-          </div>
-          <div>
-            <h1 className="text-sm font-semibold">Prometheus Config</h1>
-            <p className="text-xs text-muted-foreground">Configuration Manager</p>
+    <>
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-chart-1 to-chart-2 flex items-center justify-center">
+              <Settings className="h-4 w-4 text-background" />
+            </div>
+            <div>
+              <h1 className="text-sm font-semibold">Prometheus Config</h1>
+              <p className="text-xs text-muted-foreground">Configuration Manager</p>
+            </div>
           </div>
         </div>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleReloadPrometheus()}
+                disabled={busy}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${busy ? "animate-spin" : ""}`} />
+                Reload Prometheus
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>POST http://127.0.0.1:9090/-/reload</TooltipContent>
+        </Tooltip>
       </div>
 
-      {/* Right side - Actions */}
-      <div className="flex items-center gap-2">
-        {validationErrors.length > 0 && (
-          <Badge variant="destructive" className="mr-2">
-            <AlertCircle className="h-3 w-3 mr-1" />
-            {validationErrors.length} issues
-          </Badge>
-        )}
-
-        <ConfigStats />
-        <VersionHistory />
-
-        <div className="h-6 w-px bg-border mx-1" />
-
-        <Button variant="outline" size="sm" onClick={() => validateConfig()}>
-          Validate
-        </Button>
-
-        <div className="h-6 w-px bg-border mx-1" />
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleReloadPrometheus}
-          disabled={reloadStatus === 'loading'}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${reloadStatus === 'loading' ? 'animate-spin' : ''}`} />
-          Reload
-        </Button>
-
-        <Button size="sm" disabled={!activeFileId} onClick={() => setShowSaveDiff(true)}>
-          <Save className="h-4 w-4 mr-2" />
-          Save
-        </Button>
-        {reloadMessage && (
-          <span className={reloadStatus === 'error' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
-            {reloadMessage}
-          </span>
-        )}
-      </div>
-
-      <Dialog open={showSaveDiff} onOpenChange={setShowSaveDiff}>
+      <Dialog open={errorOpen} onOpenChange={setErrorOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              Save Changes
-            </DialogTitle>
-            <DialogDescription>
-              Confirm save by reviewing the YAML diff preview.
-            </DialogDescription>
+            <DialogTitle>Prometheus reload</DialogTitle>
+            <DialogDescription className="text-destructive">{errorDetail}</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-1 gap-4 py-2">
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">Before YAML</p>
-              <Textarea value={originalYaml} readOnly className="h-40 font-mono text-xs" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">After YAML</p>
-              <Textarea value={exportYaml()} readOnly className="h-40 font-mono text-xs" />
-            </div>
-            {saveError && <p className="text-xs text-destructive">{saveError}</p>}
-          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSaveDiff(false)}>Cancel</Button>
-            <Button onClick={handleSaveConfirm}>Confirm Save</Button>
+            <Button onClick={() => setErrorOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   )
 }

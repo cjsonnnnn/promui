@@ -47,6 +47,11 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { JobEditorModal } from '../job-editor-modal'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 export function ScrapeConfigsEditor() {
   const {
@@ -123,14 +128,15 @@ export function ScrapeConfigsEditor() {
             <FolderTree className="mr-2 h-4 w-4" />
             Group by Prefix
           </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => setIsAddingJob(true)}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Job
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="default" size="sm" onClick={() => setIsAddingJob(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Job
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Add a scrape job</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -349,9 +355,13 @@ function JobRow({
               Duplicate
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onDelete} className="text-destructive">
+            <DropdownMenuItem
+              onClick={onDelete}
+              className="text-destructive"
+              title="Remove this scrape job"
+            >
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete
+              Delete job
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -430,9 +440,13 @@ function JobTableRow({
                 Duplicate
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onDelete} className="text-destructive">
+              <DropdownMenuItem
+                onClick={onDelete}
+                className="text-destructive"
+                title="Remove this scrape job"
+              >
                 <Trash2 className="mr-2 h-4 w-4" />
-                Delete
+                Delete job
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

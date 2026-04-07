@@ -5,7 +5,9 @@ import { usePrometheusStore } from '@/lib/prometheus-store'
 import { FileExplorer } from '@/components/prometheus/file-explorer'
 import { ConfigTree } from '@/components/prometheus/config-tree'
 import { TopBar } from '@/components/prometheus/top-bar'
+import { EditorToolbar } from '@/components/prometheus/editor-toolbar'
 import { YamlPreview } from '@/components/prometheus/yaml-preview'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { GlobalEditor } from '@/components/prometheus/editors/global-editor'
 import { ScrapeConfigsEditor } from '@/components/prometheus/editors/scrape-configs-editor'
 import { RuleFilesEditor } from '@/components/prometheus/editors/rule-files-editor'
@@ -46,10 +48,11 @@ function ConfigEditor() {
 }
 
 export default function PrometheusConfigEditor() {
-  const { refreshFiles, setActiveFile, undo, redo } = usePrometheusStore()
+  const { refreshFiles, refreshConfigInfo, setActiveFile, undo, redo } = usePrometheusStore()
 
   useEffect(() => {
     const bootstrap = async () => {
+      await refreshConfigInfo()
       await refreshFiles()
       const nextFiles = usePrometheusStore.getState().files
       if (nextFiles.length > 0) {
@@ -57,7 +60,7 @@ export default function PrometheusConfigEditor() {
       }
     }
     void bootstrap()
-  }, [refreshFiles, setActiveFile])
+  }, [refreshFiles, refreshConfigInfo, setActiveFile])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -75,38 +78,41 @@ export default function PrometheusConfigEditor() {
   }, [undo, redo])
 
   return (
-    <div className="flex h-screen flex-col bg-background">
-      <TopBar />
-      
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
-        {/* File Explorer */}
-        <ResizablePanel defaultSize={15} minSize={12} maxSize={25}>
-          <FileExplorer />
-        </ResizablePanel>
-        
-        <ResizableHandle withHandle />
+    <TooltipProvider delayDuration={300}>
+      <div className="flex h-screen flex-col bg-background">
+        <TopBar />
 
-        {/* Config Tree */}
-        <ResizablePanel defaultSize={15} minSize={12} maxSize={25}>
-          <ConfigTree />
-        </ResizablePanel>
+        <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
+          <ResizablePanel defaultSize={15} minSize={12} maxSize={25}>
+            <FileExplorer />
+          </ResizablePanel>
 
-        <ResizableHandle withHandle />
+          <ResizableHandle withHandle />
 
-        {/* Main Editor */}
-        <ResizablePanel defaultSize={45} minSize={30}>
-          <div className="h-full overflow-auto bg-background">
-            <ConfigEditor />
-          </div>
-        </ResizablePanel>
+          <ResizablePanel defaultSize={15} minSize={12} maxSize={25}>
+            <ConfigTree />
+          </ResizablePanel>
 
-        <ResizableHandle withHandle />
+          <ResizableHandle withHandle />
 
-        {/* YAML Preview */}
-        <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
-          <YamlPreview />
-        </ResizablePanel>
-      </ResizablePanelGroup>
-    </div>
+          <ResizablePanel defaultSize={45} minSize={30}>
+            <div className="flex h-full min-h-0 flex-col bg-background">
+              <EditorToolbar />
+              <div className="min-h-0 flex-1 overflow-auto">
+                <ConfigEditor />
+              </div>
+            </div>
+          </ResizablePanel>
+
+          <ResizableHandle withHandle />
+
+          <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
+            <div className="h-full min-h-0">
+              <YamlPreview />
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
+    </TooltipProvider>
   )
 }

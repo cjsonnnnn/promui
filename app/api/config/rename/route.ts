@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import { NextRequest, NextResponse } from 'next/server'
 import { filePathFor, sanitizeFilename } from '@/lib/config-fs'
+import { renameHistory } from '@/lib/history-fs'
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,6 +14,7 @@ export async function POST(request: NextRequest) {
     }
 
     await fs.rename(filePathFor(from), filePathFor(to))
+    await renameHistory(from, to)
     return NextResponse.json({ ok: true, filename: to })
   } catch (error) {
     return NextResponse.json(

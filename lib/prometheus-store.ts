@@ -6,7 +6,7 @@ import {
   ValidationError,
   PrometheusConfig,
   ConfigFile,
-  ConfigVersion,
+  ConfigHistoryEntry,
   ConfigSection,
   ConfigStats,
   GlobalConfig,
@@ -36,18 +36,29 @@ interface PrometheusStore {
   activeSection: ConfigSection | null
   activeScrapeConfigId: string | null
   validationErrors: ValidationError[]
-  versions: ConfigVersion[]
+  historyVersions: ConfigHistoryEntry[]
   originalYaml: string
+  configDirectoryDisplay: string
   isLoadingFiles: boolean
   isLoadingFile: boolean
   isSaving: boolean
+  isValidating: boolean
+  /** Set by YamlPreview so Save can flush Monaco → store before diff */
+  flushEditorYamlToStore: (() => void) | null
+  setFlushEditorYamlToStore: (fn: (() => void) | null) => void
   undoStack: HistorySnapshot[]
   redoStack: HistorySnapshot[]
   setDirectoryPath: (path: string) => void
   addFile: (file: Omit<ConfigFile, 'id'>) => void
   refreshFiles: () => Promise<void>
-  createNewFile: (filename: string) => Promise<{ success: boolean; error?: string }>
-  uploadYamlFile: (filename: string, yaml: string) => Promise<{ success: boolean; error?: string }>
+  createNewFile: (filename: string) => Promise<{ success: boolean; error?: string; conflict?: boolean }>
+  uploadYamlFile: (
+    filename: string,
+    yaml: string
+  ) => Promise<{ success: boolean; error?: string; conflict?: boolean }>
+  saveYamlToDisk: (filename: string, yaml: string) => Promise<{ success: boolean; error?: string }>
+  fileExists: (filename: string) => Promise<boolean>
+  refreshConfigInfo: () => Promise<void>
   renameFile: (id: string, nextName: string) => Promise<{ success: boolean; error?: string }>
   setActiveFile: (id: string) => Promise<void>
   deleteFile: (id: string) => Promise<{ success: boolean; error?: string }>
@@ -91,14 +102,15 @@ interface PrometheusStore {
   importYaml: (yaml: string, filename?: string) => { success: boolean; errors: ValidationError[] }
   exportYaml: () => string
   validateConfig: () => ValidationError[]
+  validateConfigAsync: () => Promise<ValidationError[]>
   groupJobsByPrefix: () => Map<string, ScrapeConfig[]>
   getStats: () => ConfigStats
   
   undo: () => void
   redo: () => void
-  saveVersion: (comment: string) => void
-  restoreVersion: (versionId: string) => void
-  getVersionDiff: (versionId1: string, versionId2: string) => string
+  loadHistoryForFile: (filename: string) => Promise<void>
+  restoreHistoryEntry: (versionId: string) => void
+  hydrateFromYaml: (yaml: string) => { success: boolean; error?: string }
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 11)
@@ -119,19 +131,6 @@ const compareIps = (a: string, b: string): number => {
   return 0
 }
 
-const getChangedSections = (oldConfig: PrometheusConfig, newConfig: PrometheusConfig): string[] => {
-  const sections: string[] = []
-  if (JSON.stringify(oldConfig.global) !== JSON.stringify(newConfig.global)) sections.push('global')
-  if (JSON.stringify(oldConfig.scrape_configs) !== JSON.stringify(newConfig.scrape_configs)) sections.push('scrape_configs')
-  if (JSON.stringify(oldConfig.alerting) !== JSON.stringify(newConfig.alerting)) sections.push('alerting')
-  if (JSON.stringify(oldConfig.remote_write) !== JSON.stringify(newConfig.remote_write)) sections.push('remote_write')
-  if (JSON.stringify(oldConfig.remote_read) !== JSON.stringify(newConfig.remote_read)) sections.push('remote_read')
-  if (JSON.stringify(oldConfig.storage) !== JSON.stringify(newConfig.storage)) sections.push('storage')
-  if (JSON.stringify(oldConfig.tracing) !== JSON.stringify(newConfig.tracing)) sections.push('tracing')
-  if (JSON.stringify(oldConfig.rule_files) !== JSON.stringify(newConfig.rule_files)) sections.push('rule_files')
-  return sections
-}
-
 const defaultConfig: PrometheusConfig = {
   global: {
     scrape_interval: '15s',
@@ -149,12 +148,11 @@ const fromConfig = (config: PrometheusConfig): ScrapeConfig[] =>
 const stripId = (scrapeConfigs: ScrapeConfig[]): Omit<ScrapeConfig, 'id'>[] =>
   scrapeConfigs.map(({ id, ...rest }) => rest)
 
-const nowIso = () => new Date().toISOString()
-
 export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       files: [],
       activeFileId: null,
-      directoryPath: 'CONFIG_DIR (default ./configs)',
+      directoryPath: './configs',
+      configDirectoryDisplay: './configs',
       config: defaultConfig,
       scrapeConfigs: [],
       searchQuery: '',
@@ -164,11 +162,14 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       activeSection: 'scrape_configs',
       activeScrapeConfigId: null,
       validationErrors: [],
-      versions: [],
+      historyVersions: [],
       originalYaml: '',
       isLoadingFiles: false,
       isLoadingFile: false,
       isSaving: false,
+      isValidating: false,
+      flushEditorYamlToStore: null,
+      setFlushEditorYamlToStore: (fn) => set({ flushEditorYamlToStore: fn }),
       undoStack: [],
       redoStack: [],
       setDirectoryPath: (path) => set({ directoryPath: path }),
@@ -176,6 +177,52 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       addFile: (file) => {
         const newFile: ConfigFile = { ...file, id: generateId() }
         set((state) => ({ files: [...state.files, newFile] }))
+      },
+
+      refreshConfigInfo: async () => {
+        try {
+          const response = await fetch('/api/config/info')
+          const data = await response.json()
+          if (response.ok && data.displayPath) {
+            set({
+              configDirectoryDisplay: String(data.displayPath),
+              directoryPath: String(data.displayPath),
+            })
+          }
+        } catch {
+          /* keep defaults */
+        }
+      },
+
+      fileExists: async (filename) => {
+        const response = await fetch(`/api/config/exists?file=${encodeURIComponent(filename)}`)
+        const data = await response.json()
+        if (!response.ok) return false
+        return Boolean(data.exists)
+      },
+
+      saveYamlToDisk: async (filename, yaml) => {
+        const response = await fetch('/api/config/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file: filename, content: yaml }),
+        })
+        const data = await response.json()
+        if (!response.ok) return { success: false, error: data.error || 'Failed to save file' }
+        await get().refreshFiles()
+        return { success: true }
+      },
+
+      loadHistoryForFile: async (filename) => {
+        try {
+          const response = await fetch(`/api/config/history?file=${encodeURIComponent(filename)}`)
+          const data = await response.json()
+          if (!response.ok) throw new Error(data.error)
+          const versions = (data.versions || []) as ConfigHistoryEntry[]
+          set({ historyVersions: versions })
+        } catch {
+          set({ historyVersions: [] })
+        }
       },
 
       refreshFiles: async () => {
@@ -203,15 +250,12 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           ? filename.trim()
           : `${filename.trim()}.yml`
         if (!safeName) return { success: false, error: 'Filename is required' }
+        if (await get().fileExists(safeName)) {
+          return { success: false, conflict: true, error: 'File already exists' }
+        }
         const yaml = YAML.stringify(defaultConfig, { indent: 2 })
-        const response = await fetch('/api/config/save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file: safeName, content: yaml }),
-        })
-        const data = await response.json()
-        if (!response.ok) return { success: false, error: data.error || 'Failed to create file' }
-        await get().refreshFiles()
+        const saved = await get().saveYamlToDisk(safeName, yaml)
+        if (!saved.success) return { success: false, error: saved.error }
         await get().setActiveFile(safeName)
         return { success: true }
       },
@@ -222,14 +266,11 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         } catch (error) {
           return { success: false, error: `Invalid YAML: ${(error as Error).message}` }
         }
-        const response = await fetch('/api/config/save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file: filename, content: yaml }),
-        })
-        const data = await response.json()
-        if (!response.ok) return { success: false, error: data.error || 'Failed to upload YAML' }
-        await get().refreshFiles()
+        if (await get().fileExists(filename)) {
+          return { success: false, conflict: true, error: 'File already exists' }
+        }
+        const saved = await get().saveYamlToDisk(filename, yaml)
+        if (!saved.success) return { success: false, error: saved.error }
         await get().setActiveFile(filename)
         return { success: true }
       },
@@ -270,6 +311,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             undoStack: [],
             redoStack: [],
           })
+          await get().loadHistoryForFile(id)
           get().validateConfig()
         } finally {
           set({ isLoadingFile: false })
@@ -294,6 +336,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             scrapeConfigs: [],
             validationErrors: [],
             originalYaml: '',
+            historyVersions: [],
             undoStack: [],
             redoStack: [],
           })
@@ -315,7 +358,16 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           const data = await response.json()
           if (!response.ok) return { success: false, error: data.error || 'Save failed' }
           set({ originalYaml: content })
-          get().saveVersion(`Saved ${activeFileId} at ${nowIso()}`)
+          const histRes = await fetch('/api/config/history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file: activeFileId, yaml: content }),
+          })
+          if (!histRes.ok) {
+            const err = await histRes.json().catch(() => ({}))
+            return { success: false, error: err.error || 'Saved file but failed to record history' }
+          }
+          await get().loadHistoryForFile(activeFileId)
           await get().refreshFiles()
           return { success: true }
         } finally {
@@ -671,6 +723,60 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         return YAML.stringify(cleanConfig, { indent: 2 })
       },
 
+      hydrateFromYaml: (yaml) => {
+        try {
+          const parsed = YAML.parse(yaml) as PrometheusConfig
+          if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            set({
+              validationErrors: [
+                { type: 'invalid_yaml', message: 'YAML root must be a mapping (object)' },
+              ],
+            })
+            return { success: false, error: 'Invalid root' }
+          }
+          const config: PrometheusConfig = {
+            ...defaultConfig,
+            ...parsed,
+            scrape_configs: parsed?.scrape_configs || [],
+          }
+          const scrapeConfigs = fromConfig(config)
+          set({ config, scrapeConfigs })
+          get().validateConfig()
+          return { success: true }
+        } catch (error) {
+          set({
+            validationErrors: [
+              {
+                type: 'invalid_yaml',
+                message: `Invalid YAML: ${(error as Error).message}`,
+              },
+            ],
+          })
+          return { success: false, error: (error as Error).message }
+        }
+      },
+
+      restoreHistoryEntry: (versionId) => {
+        const { historyVersions } = get()
+        const entry = historyVersions.find((v) => v.id === versionId)
+        if (!entry) return
+        const result = get().hydrateFromYaml(entry.yaml)
+        if (result.success) {
+          set({ originalYaml: entry.yaml, undoStack: [], redoStack: [] })
+          get().validateConfig()
+        }
+      },
+
+      validateConfigAsync: async () => {
+        set({ isValidating: true })
+        try {
+          await new Promise((r) => setTimeout(r, 150))
+          return get().validateConfig()
+        } finally {
+          set({ isValidating: false })
+        }
+      },
+
       validateConfig: () => {
         const { scrapeConfigs, config } = get()
         const errors: ValidationError[] = []
@@ -690,11 +796,29 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           jobNames.set(job.job_name, count + 1)
         })
         jobNames.forEach((count, name) => {
-          if (count > 1) {
+          if (!name || count <= 1) return
+          errors.push({
+            type: 'duplicate_job',
+            message: `Duplicate job name: ${name}`,
+            jobName: name,
+            section: 'scrape_configs',
+          })
+        })
+
+        scrapeConfigs.forEach((job) => {
+          if (!job.job_name?.trim()) {
             errors.push({
-              type: 'duplicate_job',
-              message: `Duplicate job name: ${name}`,
-              jobName: name,
+              type: 'missing_job_name',
+              message: 'A scrape job is missing job_name',
+              section: 'scrape_configs',
+            })
+          }
+          const totalTargets = job.static_configs.reduce((n, sc) => n + sc.targets.length, 0)
+          if (totalTargets === 0) {
+            errors.push({
+              type: 'empty_targets',
+              message: `Job "${job.job_name || '(unnamed)'}" has no targets`,
+              jobName: job.job_name,
               section: 'scrape_configs',
             })
           }
@@ -727,21 +851,24 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         scrapeConfigs.forEach((job) => {
           job.static_configs.forEach((staticConfig) => {
             staticConfig.targets.forEach((target) => {
-              if (target && !targetRegex.test(target)) {
+              const t = target?.trim() || ''
+              if (!t) return
+              if (!targetRegex.test(t)) {
                 errors.push({
                   type: 'invalid_target',
-                  message: `Invalid target format: ${target} in job ${job.job_name}`,
-                  target,
+                  message: `Invalid target format: ${t} in job ${job.job_name}`,
+                  target: t,
                   jobName: job.job_name,
                   section: 'scrape_configs',
                 })
+                return
               }
-              const port = Number(target.split(':').at(-1) || '')
+              const port = Number(t.split(':').at(-1) || '')
               if (!Number.isInteger(port) || port < 1 || port > 65535) {
                 errors.push({
                   type: 'invalid_format',
-                  message: `Invalid port format: ${target} in job ${job.job_name}`,
-                  target,
+                  message: `Invalid port format: ${t} in job ${job.job_name}`,
+                  target: t,
                   jobName: job.job_name,
                   section: 'scrape_configs',
                 })
@@ -845,56 +972,5 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           redoStack: redoStack.slice(0, -1),
           undoStack: [...undoStack, present],
         })
-      },
-
-      saveVersion: (comment) => {
-        const { config, scrapeConfigs, versions, activeFileId } = get()
-        const lastVersion = versions[versions.length - 1]
-        
-        const fullConfig: PrometheusConfig = {
-          ...config,
-          scrape_configs: scrapeConfigs.map(({ id, ...rest }) => rest),
-        }
-
-        const changedSections = lastVersion 
-          ? getChangedSections(YAML.parse(lastVersion.snapshot), fullConfig)
-          : ['initial']
-
-        const newVersion: ConfigVersion = {
-          id: generateId(),
-          fileId: activeFileId || 'default',
-          timestamp: new Date(),
-          content: fullConfig,
-          changedSections,
-          comment,
-          snapshot: YAML.stringify(fullConfig),
-        }
-
-        set({ versions: [...versions, newVersion] })
-      },
-
-      restoreVersion: (versionId) => {
-        const { versions } = get()
-        const version = versions.find((v) => v.id === versionId)
-        if (version) {
-          const scrapeConfigs = (version.content.scrape_configs || []).map((sc) => ({
-            ...sc,
-            id: generateId(),
-          }))
-          set({
-            config: version.content,
-            scrapeConfigs,
-          })
-        }
-      },
-
-      getVersionDiff: (versionId1, versionId2) => {
-        const { versions } = get()
-        const v1 = versions.find((v) => v.id === versionId1)
-        const v2 = versions.find((v) => v.id === versionId2)
-        if (!v1 || !v2) return ''
-        
-        // Simple diff - in production you'd use a proper diff library
-        return `--- ${v1.comment} (${v1.timestamp})\n+++ ${v2.comment} (${v2.timestamp})\n\nChanged sections: ${v2.changedSections.join(', ')}`
       },
 }))

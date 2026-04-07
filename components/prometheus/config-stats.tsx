@@ -8,6 +8,11 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { BarChart3, Server, Target, FileText, Upload, Download, Bell, AlertTriangle } from 'lucide-react'
 
 export function ConfigStats() {
@@ -16,12 +21,19 @@ export function ConfigStats() {
 
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm">
-          <BarChart3 className="mr-2 h-4 w-4" />
-          Stats
-        </Button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm">
+                <BarChart3 className="mr-2 h-4 w-4" />
+                Stats
+              </Button>
+            </PopoverTrigger>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>Overview of jobs, targets, and other counts for the active file</TooltipContent>
+      </Tooltip>
       <PopoverContent className="w-80" align="end">
         <div className="space-y-4">
           <div className="flex items-center gap-2">

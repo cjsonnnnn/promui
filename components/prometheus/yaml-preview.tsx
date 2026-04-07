@@ -1,34 +1,114 @@
 "use client"
 
-import { useEffect, useState } from 'react'
-import { usePrometheusStore } from '@/lib/prometheus-store'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Copy, Check, AlertCircle, FileCode, Download } from 'lucide-react'
+import dynamic from "next/dynamic"
+import { useCallback, useEffect, useRef, useState } from "react"
+import type * as monaco from "monaco-editor"
+import { usePrometheusStore } from "@/lib/prometheus-store"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Copy, Check, AlertCircle, FileCode, Download, Loader2 } from "lucide-react"
+import { toast } from "sonner"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+
+const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false })
+
+function useDebouncedCallback<T extends (...args: unknown[]) => void>(fn: T, ms: number) {
+  const t = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const f = useRef(fn)
+  f.current = fn
+  return useCallback(
+    (...args: Parameters<T>) => {
+      if (t.current) clearTimeout(t.current)
+      t.current = setTimeout(() => f.current(...args), ms)
+    },
+    [ms]
+  ) as T
+}
 
 export function YamlPreview() {
-  const { exportYaml, validateConfig, validationErrors, scrapeConfigs, config, files, activeFileId } =
-    usePrometheusStore()
-  const [yaml, setYaml] = useState('')
+  const {
+    exportYaml,
+    validateConfig,
+    validationErrors,
+    activeFileId,
+    files,
+    hydrateFromYaml,
+    config,
+    scrapeConfigs,
+    isLoadingFile,
+    setFlushEditorYamlToStore,
+  } = usePrometheusStore()
+
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
+  const editorFocusedRef = useRef(false)
   const [copied, setCopied] = useState(false)
+  const [lineCount, setLineCount] = useState(1)
+
+  const debouncedApply = useDebouncedCallback((value: string) => {
+    hydrateFromYaml(value)
+  }, 400)
+
+  const flushYaml = (value: string) => {
+    hydrateFromYaml(value)
+  }
 
   useEffect(() => {
-    setYaml(exportYaml())
-    validateConfig()
-  }, [scrapeConfigs, config, exportYaml, validateConfig])
+    setFlushEditorYamlToStore(() => {
+      const ed = editorRef.current
+      if (ed) usePrometheusStore.getState().hydrateFromYaml(ed.getValue())
+    })
+    return () => setFlushEditorYamlToStore(null)
+  }, [setFlushEditorYamlToStore])
+
+  const handleEditorMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
+    editorRef.current = editor
+    editor.onDidFocusEditorWidget(() => {
+      editorFocusedRef.current = true
+    })
+    editor.onDidBlurEditorWidget(() => {
+      editorFocusedRef.current = false
+      flushYaml(editor.getValue())
+    })
+    const initial = exportYaml()
+    editor.setValue(initial)
+    setLineCount(initial.split("\n").length)
+  }
+
+  useEffect(() => validateConfig(), [scrapeConfigs, config, validateConfig])
+
+  useEffect(() => {
+    if (!activeFileId || !editorRef.current || editorFocusedRef.current) return
+    const next = exportYaml()
+    const cur = editorRef.current.getValue()
+    if (cur !== next) {
+      editorRef.current.setValue(next)
+      setLineCount(next.split("\n").length)
+    }
+  }, [activeFileId, config, scrapeConfigs, exportYaml])
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(yaml)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    const text = editorRef.current?.getValue() ?? exportYaml()
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      toast.success("Copied to clipboard")
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast.error("Could not copy to clipboard")
+    }
   }
 
   const handleDownload = () => {
-    const activeFile = files.find((f) => f.id === activeFileId)
-    const filename = activeFile?.filename || 'prometheus.yml'
-    const blob = new Blob([yaml], { type: 'text/yaml' })
+    const yaml = editorRef.current?.getValue() ?? exportYaml()
+    const filename =
+      files.find((f) => f.id === activeFileId)?.filename || "prometheus.yml"
+    const blob = new Blob([yaml], { type: "text/yaml" })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
+    const a = document.createElement("a")
     a.href = url
     a.download = filename
     document.body.appendChild(a)
@@ -37,133 +117,112 @@ export function YamlPreview() {
     URL.revokeObjectURL(url)
   }
 
-  const highlightYaml = (yaml: string): React.ReactNode[] => {
-    const lines = yaml.split('\n')
-    return lines.map((line, i) => {
-      let highlighted = line
-
-      // Section headers (top-level keys)
-      if (/^[a-z_]+:/.test(line)) {
-        highlighted = highlighted.replace(
-          /^([a-z_]+):/gi,
-          '<span class="text-chart-1 font-medium">$1</span>:'
-        )
-      } else {
-        // Nested keys
-        highlighted = highlighted.replace(
-          /^(\s+)([a-z_]+):/gi,
-          '$1<span class="text-chart-2">$2</span>:'
-        )
-
-        // String values (after colon)
-        highlighted = highlighted.replace(
-          /: (.+)$/,
-          ': <span class="text-foreground/80">$1</span>'
-        )
-
-        // Array items
-        highlighted = highlighted.replace(
-          /^(\s*)- (.+)$/,
-          '$1<span class="text-muted-foreground">-</span> <span class="text-foreground/80">$2</span>'
-        )
-      }
-
-      return (
-        <div key={i} className="leading-6 hover:bg-muted/30 px-2 -mx-2 rounded">
-          <span className="text-muted-foreground/50 select-none mr-4 inline-block w-8 text-right text-xs">
-            {i + 1}
-          </span>
-          <span dangerouslySetInnerHTML={{ __html: highlighted }} />
-        </div>
-      )
-    })
-  }
-
   const hasActiveFile = !!activeFileId
 
   return (
-    <div className="flex flex-col h-full bg-card">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <div className="flex items-center gap-2">
-          <FileCode className="h-4 w-4 text-muted-foreground" />
-          <span className="font-medium text-sm">
-            {files.find((f) => f.id === activeFileId)?.filename || 'prometheus.yml'}
+    <div className="flex h-full min-h-0 flex-col bg-card">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <FileCode className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="truncate text-sm font-medium">
+            {files.find((f) => f.id === activeFileId)?.filename || "prometheus.yml"}
           </span>
-          <Badge variant="secondary" className="text-xs">
-            {yaml.split('\n').length} lines
+          <Badge variant="secondary" className="shrink-0 text-xs">
+            {lineCount} lines
           </Badge>
+          {isLoadingFile && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />}
         </div>
         <div className="flex items-center gap-1">
           {validationErrors.length > 0 && (
-            <Badge variant="destructive" className="text-xs mr-2">
-              <AlertCircle className="h-3 w-3 mr-1" />
-              {validationErrors.length} issue{validationErrors.length > 1 ? 's' : ''}
+            <Badge variant="destructive" className="mr-1 text-xs">
+              <AlertCircle className="mr-1 h-3 w-3" />
+              {validationErrors.length}
             </Badge>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleDownload}
-            disabled={!hasActiveFile}
-            className="h-8"
-          >
-            <Download className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleCopy}
-            disabled={!hasActiveFile}
-            className="h-8"
-          >
-            {copied ? (
-              <>
-                <Check className="h-4 w-4 mr-1" />
-                Copied
-              </>
-            ) : (
-              <>
-                <Copy className="h-4 w-4 mr-1" />
-                Copy
-              </>
-            )}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDownload}
+                  disabled={!hasActiveFile}
+                  className="h-8"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Download YAML</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void handleCopy()}
+                  disabled={!hasActiveFile}
+                  className="h-8"
+                >
+                  {copied ? (
+                    <Check className="mr-1 h-4 w-4" />
+                  ) : (
+                    <Copy className="mr-1 h-4 w-4" />
+                  )}
+                  Copy
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Copy YAML</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
       {validationErrors.length > 0 && (
-        <div className="px-4 py-2 bg-destructive/10 border-b border-destructive/20">
-          <div className="text-xs text-destructive space-y-1">
-            {validationErrors.slice(0, 5).map((error, i) => (
+        <div className="max-h-28 shrink-0 overflow-y-auto border-b border-destructive/20 bg-destructive/10 px-4 py-2">
+          <div className="space-y-1 text-xs text-destructive">
+            {validationErrors.map((error, i) => (
               <div key={i} className="flex items-start gap-2">
-                <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>{error.message}</span>
               </div>
             ))}
-            {validationErrors.length > 5 && (
-              <div className="text-xs text-destructive/70 pl-5">
-                +{validationErrors.length - 5} more issues...
-              </div>
-            )}
           </div>
         </div>
       )}
 
-      <div className="flex-1 overflow-auto">
-        <div className="p-4 min-h-full">
-          {!hasActiveFile ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center">
-              <FileCode className="h-12 w-12 text-muted-foreground/30" />
-              <p className="mt-4 text-muted-foreground text-sm">
-                Select or create a YAML file to preview configuration
-              </p>
-            </div>
-          ) : (
-            <pre className="font-mono text-xs">
-              <code>{highlightYaml(yaml)}</code>
-            </pre>
-          )}
-        </div>
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {!hasActiveFile ? (
+          <div className="flex h-full flex-col items-center justify-center p-6 text-center">
+            <FileCode className="h-12 w-12 text-muted-foreground/30" />
+            <p className="mt-4 text-sm text-muted-foreground">
+              Select or create a YAML file to edit
+            </p>
+          </div>
+        ) : (
+          <Editor
+            height="100%"
+            defaultLanguage="yaml"
+            theme="vs-dark"
+            path={`yaml-${activeFileId}`}
+            onMount={handleEditorMount}
+            onChange={(value) => {
+              if (value !== undefined) {
+                setLineCount(value.split("\n").length)
+                debouncedApply(value)
+              }
+            }}
+            options={{
+              minimap: { enabled: true },
+              fontSize: 12,
+              wordWrap: "on",
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              tabSize: 2,
+            }}
+          />
+        )}
       </div>
     </div>
   )
