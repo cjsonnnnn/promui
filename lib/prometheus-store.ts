@@ -1454,7 +1454,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           }
         })
 
-        // Validate remote_write URLs
+        // Validate remote_write URLs and durations
         config.remote_write?.forEach((rw, i) => {
           if (!rw.url) {
             errors.push({
@@ -1464,9 +1464,10 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
               field: 'url',
             })
           }
+          validateDuration(rw.remote_timeout, 'remote_timeout', 'remote_write')
         })
 
-        // Validate remote_read URLs
+        // Validate remote_read URLs and durations
         config.remote_read?.forEach((rr, i) => {
           if (!rr.url) {
             errors.push({
@@ -1476,6 +1477,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
               field: 'url',
             })
           }
+          validateDuration(rr.remote_timeout, 'remote_timeout', 'remote_read')
         })
 
         set({ validationErrors: errors })

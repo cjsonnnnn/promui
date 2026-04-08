@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { usePrometheusStore } from "@/lib/prometheus-store"
+import { cn } from "@/lib/utils"
 import { ConfigStats } from "./config-stats"
 import { VersionHistory } from "./version-history"
 import { SaveChangesDialog } from "./save-changes-dialog"
@@ -106,7 +107,9 @@ export function EditorToolbar() {
             </Badge>
           )}
         </div>
-        <ConfigStats />
+        <span className={cn(!resolvedFile && "pointer-events-none opacity-50")}>
+          <ConfigStats />
+        </span>
         <VersionHistory />
         <Tooltip>
           <TooltipTrigger asChild>

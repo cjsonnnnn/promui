@@ -205,7 +205,14 @@ export function ScrapeConfigsEditor() {
 
   const tableGroupSections = useMemo(() => {
     const m = new Map<string, ScrapeConfig[]>()
-    for (const job of jobsAfterGroupFilter) {
+    // Ensure jobs within each group are sorted by the current sort order
+    const sortedJobs = [...jobsAfterGroupFilter]
+    if (sortBy === 'name_asc') {
+      sortedJobs.sort((a, b) => (a.job_name || '').localeCompare(b.job_name || ''))
+    } else if (sortBy === 'name_desc') {
+      sortedJobs.sort((a, b) => (b.job_name || '').localeCompare(a.job_name || ''))
+    }
+    for (const job of sortedJobs) {
       const key = canonicalScrapeGroup(job.scrape_group)
       if (!m.has(key)) m.set(key, [])
       m.get(key)!.push(job)
@@ -238,7 +245,7 @@ export function ScrapeConfigsEditor() {
       label: key,
       jobs: m.get(key)!,
     }))
-  }, [jobsAfterGroupFilter, metaGroups, groupKeyOrder])
+  }, [jobsAfterGroupFilter, metaGroups, groupKeyOrder, sortBy])
 
   // Group jobs by their explicit scrape_group value (NOT by prefix)
   // This ensures UI grouping always matches YAML output grouping

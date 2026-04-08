@@ -40,7 +40,13 @@ export function ConfigTree({ onCollapse }: ConfigTreeProps) {
     scrapeConfigs,
     activeSection,
     setActiveSection,
+    activeFileId,
+    files,
   } = usePrometheusStore()
+
+  const hasResolvedFile = Boolean(
+    activeFileId && files.some((f) => f.id === activeFileId)
+  )
 
   const treeItems: TreeItem[] = [
     {
@@ -140,9 +146,11 @@ export function ConfigTree({ onCollapse }: ConfigTreeProps) {
                     isActive
                       ? 'bg-accent text-accent-foreground'
                       : 'hover:bg-muted',
-                    !hasData && 'opacity-50'
+                    !hasData && 'opacity-50',
+                    !hasResolvedFile && 'pointer-events-none opacity-40'
                   )}
                   onClick={() => setActiveSection(item.section)}
+                  disabled={!hasResolvedFile}
                 >
                   <Icon className="h-4 w-4 text-muted-foreground" />
                   <span className="flex-1">{item.label}</span>
