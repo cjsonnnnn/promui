@@ -23,10 +23,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 
 export function AlertingEditor() {
-  const { config, updateAlerting } = usePrometheusStore()
+  const { config, updateAlerting, activeFileId, files } = usePrometheusStore()
   const alerting = config.alerting || { alertmanagers: [] }
+
+  const hasResolvedFile = Boolean(
+    activeFileId && files.some((f) => f.id === activeFileId)
+  )
+  const isDisabled = !hasResolvedFile
 
   const [isAddingAM, setIsAddingAM] = useState(false)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
@@ -78,7 +84,7 @@ export function AlertingEditor() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className={cn("space-y-6 p-6", isDisabled && "pointer-events-none opacity-50")}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent">
@@ -91,7 +97,7 @@ export function AlertingEditor() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setIsAddingAM(true)}>
+        <Button onClick={() => setIsAddingAM(true)} disabled={isDisabled}>
           <Plus className="mr-2 h-4 w-4" />
           Add Alertmanager
         </Button>
@@ -107,7 +113,7 @@ export function AlertingEditor() {
             <p className="text-sm text-muted-foreground">
               Add an Alertmanager to start receiving alerts
             </p>
-            <Button className="mt-4" onClick={() => setIsAddingAM(true)}>
+            <Button className="mt-4" onClick={() => setIsAddingAM(true)} disabled={isDisabled}>
               <Plus className="mr-2 h-4 w-4" />
               Add Alertmanager
             </Button>
@@ -128,6 +134,7 @@ export function AlertingEditor() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleEdit(index)}
+                      disabled={isDisabled}
                     >
                       Edit
                     </Button>
@@ -135,6 +142,7 @@ export function AlertingEditor() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleDelete(index)}
+                      disabled={isDisabled}
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>

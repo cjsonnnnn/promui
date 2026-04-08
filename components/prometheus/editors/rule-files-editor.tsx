@@ -6,10 +6,16 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus, Trash2, FileText, File } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export function RuleFilesEditor() {
-  const { config, addRuleFile, deleteRuleFile, setRuleFiles } = usePrometheusStore()
+  const { config, addRuleFile, deleteRuleFile, setRuleFiles, activeFileId, files } = usePrometheusStore()
   const ruleFiles = config.rule_files || []
+
+  const hasResolvedFile = Boolean(
+    activeFileId && files.some((f) => f.id === activeFileId)
+  )
+  const isDisabled = !hasResolvedFile
 
   const [newPath, setNewPath] = useState('')
 
@@ -27,7 +33,7 @@ export function RuleFilesEditor() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className={cn("space-y-6 p-6", isDisabled && "pointer-events-none opacity-50")}>
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent">
           <FileText className="h-5 w-5" />
@@ -72,6 +78,7 @@ export function RuleFilesEditor() {
                     size="icon"
                     className="h-7 w-7"
                     onClick={() => deleteRuleFile(index)}
+                    disabled={isDisabled}
                   >
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
@@ -85,10 +92,11 @@ export function RuleFilesEditor() {
               value={newPath}
               onChange={(e) => setNewPath(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="/etc/prometheus/rules/*.yml"
+              placeholder={isDisabled ? "Select a file first..." : "/etc/prometheus/rules/*.yml"}
               className="flex-1 font-mono"
+              disabled={isDisabled}
             />
-            <Button onClick={handleAdd} disabled={!newPath.trim()}>
+            <Button onClick={handleAdd} disabled={isDisabled || !newPath.trim()}>
               <Plus className="mr-2 h-4 w-4" />
               Add Path
             </Button>

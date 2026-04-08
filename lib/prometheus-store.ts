@@ -1335,6 +1335,32 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           })
         }
 
+        // Prometheus duration regex: number followed by time unit (ms, s, m, h, d, w, y)
+        const durationRegex = /^\d+(ms|s|m|h|d|w|y)$/
+        const validateDuration = (value: string | undefined, field: string, section: string, jobName?: string): void => {
+          if (!value) return
+          if (!durationRegex.test(value)) {
+            errors.push({
+              type: 'invalid_format',
+              message: `Invalid duration format "${value}" for ${field}. Expected format: 15s, 1m, 1h, etc.`,
+              field,
+              jobName,
+              section,
+            })
+          }
+        }
+
+        // Validate global durations
+        if (config.global?.scrape_interval) {
+          validateDuration(config.global.scrape_interval, 'scrape_interval', 'global')
+        }
+        if (config.global?.scrape_timeout) {
+          validateDuration(config.global.scrape_timeout, 'scrape_timeout', 'global')
+        }
+        if (config.global?.evaluation_interval) {
+          validateDuration(config.global.evaluation_interval, 'evaluation_interval', 'global')
+        }
+
         // Check for duplicate job names
         const jobNames = new Map<string, number>()
         scrapeConfigs.forEach((job) => {
@@ -1360,6 +1386,9 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
               section: 'scrape_configs',
             })
           }
+          // Validate job-level durations
+          validateDuration(job.scrape_interval, 'scrape_interval', 'scrape_configs', job.job_name)
+          validateDuration(job.scrape_timeout, 'scrape_timeout', 'scrape_configs', job.job_name)
           const statics = job.static_configs || []
           const totalTargets = statics.reduce((n, sc) => n + (sc.targets?.length || 0), 0)
           if (totalTargets === 0) {

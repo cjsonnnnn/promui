@@ -4,13 +4,19 @@ import { usePrometheusStore } from '@/lib/prometheus-store'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Database } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export function StorageEditor() {
-  const { config, updateStorage } = usePrometheusStore()
+  const { config, updateStorage, activeFileId, files } = usePrometheusStore()
   const storage = config.storage || {}
 
+  const hasResolvedFile = Boolean(
+    activeFileId && files.some((f) => f.id === activeFileId)
+  )
+  const isDisabled = !hasResolvedFile
+
   return (
-    <div className="space-y-6 p-6">
+    <div className={cn("space-y-6 p-6", isDisabled && "pointer-events-none opacity-50")}>
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent">
           <Database className="h-5 w-5" />
@@ -45,7 +51,8 @@ export function StorageEditor() {
                     },
                   })
                 }
-                placeholder="0s"
+                placeholder={isDisabled ? "Select a file first..." : "0s"}
+                disabled={isDisabled}
               />
               <p className="text-xs text-muted-foreground">
                 How far back to accept out-of-order samples (e.g., 30m)
@@ -78,7 +85,8 @@ export function StorageEditor() {
                     },
                   })
                 }
-                placeholder="100000"
+                placeholder={isDisabled ? "Select a file first..." : "100000"}
+                disabled={isDisabled}
               />
               <p className="text-xs text-muted-foreground">
                 Maximum number of exemplars to store in circular buffer

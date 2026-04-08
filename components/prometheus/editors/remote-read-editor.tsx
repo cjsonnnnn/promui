@@ -22,11 +22,17 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion'
+import { cn } from '@/lib/utils'
 
 export function RemoteReadEditor() {
-  const { config, addRemoteRead, updateRemoteRead, deleteRemoteRead } =
+  const { config, addRemoteRead, updateRemoteRead, deleteRemoteRead, activeFileId, files } =
     usePrometheusStore()
   const remoteReads = config.remote_read || []
+
+  const hasResolvedFile = Boolean(
+    activeFileId && files.some((f) => f.id === activeFileId)
+  )
+  const isDisabled = !hasResolvedFile
 
   const [isAdding, setIsAdding] = useState(false)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
@@ -67,7 +73,7 @@ export function RemoteReadEditor() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className={cn("space-y-6 p-6", isDisabled && "pointer-events-none opacity-50")}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent">
@@ -80,7 +86,7 @@ export function RemoteReadEditor() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setIsAdding(true)}>
+        <Button onClick={() => setIsAdding(true)} disabled={isDisabled}>
           <Plus className="mr-2 h-4 w-4" />
           Add Remote Read
         </Button>
@@ -96,7 +102,7 @@ export function RemoteReadEditor() {
             <p className="text-sm text-muted-foreground">
               Add a remote read endpoint to query external storage
             </p>
-            <Button className="mt-4" onClick={() => setIsAdding(true)}>
+            <Button className="mt-4" onClick={() => setIsAdding(true)} disabled={isDisabled}>
               <Plus className="mr-2 h-4 w-4" />
               Add Remote Read
             </Button>
@@ -117,6 +123,7 @@ export function RemoteReadEditor() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleEdit(index)}
+                      disabled={isDisabled}
                     >
                       Edit
                     </Button>
@@ -124,6 +131,7 @@ export function RemoteReadEditor() {
                       variant="ghost"
                       size="sm"
                       onClick={() => deleteRemoteRead(index)}
+                      disabled={isDisabled}
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>

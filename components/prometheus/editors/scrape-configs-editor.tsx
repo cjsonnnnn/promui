@@ -240,15 +240,17 @@ export function ScrapeConfigsEditor() {
     }))
   }, [jobsAfterGroupFilter, metaGroups, groupKeyOrder])
 
+  // Group jobs by their explicit scrape_group value (NOT by prefix)
+  // This ensures UI grouping always matches YAML output grouping
   const groupedJobs = useMemo(() => {
     if (!showGroupView) return null
     const groups = new Map<string, ScrapeConfig[]>()
     jobsAfterGroupFilter.forEach((job) => {
-      const match = (job.job_name || '').match(/^([a-zA-Z0-9]+)-/)
-      const prefix = match ? match[1] : 'other'
-      const existing = groups.get(prefix) || []
+      // Use explicit job.scrape_group as source of truth
+      const groupKey = canonicalScrapeGroup(job.scrape_group)
+      const existing = groups.get(groupKey) || []
       existing.push(job)
-      groups.set(prefix, existing)
+      groups.set(groupKey, existing)
     })
     return groups
   }, [showGroupView, jobsAfterGroupFilter])

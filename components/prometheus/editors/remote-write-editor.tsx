@@ -21,11 +21,17 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion'
+import { cn } from '@/lib/utils'
 
 export function RemoteWriteEditor() {
-  const { config, addRemoteWrite, updateRemoteWrite, deleteRemoteWrite } =
+  const { config, addRemoteWrite, updateRemoteWrite, deleteRemoteWrite, activeFileId, files } =
     usePrometheusStore()
   const remoteWrites = config.remote_write || []
+
+  const hasResolvedFile = Boolean(
+    activeFileId && files.some((f) => f.id === activeFileId)
+  )
+  const isDisabled = !hasResolvedFile
 
   const [isAdding, setIsAdding] = useState(false)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
@@ -66,7 +72,7 @@ export function RemoteWriteEditor() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className={cn("space-y-6 p-6", isDisabled && "pointer-events-none opacity-50")}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent">
@@ -79,7 +85,7 @@ export function RemoteWriteEditor() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setIsAdding(true)}>
+        <Button onClick={() => setIsAdding(true)} disabled={isDisabled}>
           <Plus className="mr-2 h-4 w-4" />
           Add Remote Write
         </Button>
@@ -95,7 +101,7 @@ export function RemoteWriteEditor() {
             <p className="text-sm text-muted-foreground">
               Add a remote write endpoint to send data to external storage
             </p>
-            <Button className="mt-4" onClick={() => setIsAdding(true)}>
+            <Button className="mt-4" onClick={() => setIsAdding(true)} disabled={isDisabled}>
               <Plus className="mr-2 h-4 w-4" />
               Add Remote Write
             </Button>
@@ -116,6 +122,7 @@ export function RemoteWriteEditor() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleEdit(index)}
+                      disabled={isDisabled}
                     >
                       Edit
                     </Button>
@@ -123,6 +130,7 @@ export function RemoteWriteEditor() {
                       variant="ghost"
                       size="sm"
                       onClick={() => deleteRemoteWrite(index)}
+                      disabled={isDisabled}
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
