@@ -22,6 +22,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Plus, Trash2, X } from 'lucide-react'
+import {
+  SCRAPE_GROUP_UNGROUPED,
+  canonicalScrapeGroup,
+} from '@/lib/scrape-group-utils'
 
 interface JobEditorModalProps {
   open: boolean
@@ -48,7 +52,9 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
   const [scrapeGroup, setScrapeGroup] = useState('')
   const [newGroupName, setNewGroupName] = useState('')
 
-  const metaGroups = config.meta?.groups || []
+  const metaGroups = (config.meta?.groups || []).filter(
+    (g) => canonicalScrapeGroup(g) !== SCRAPE_GROUP_UNGROUPED
+  )
 
   useEffect(() => {
     if (job) {
@@ -65,7 +71,7 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
       setLabels(
         Object.entries(existingLabels).map(([key, value]) => ({ key, value }))
       )
-      setScrapeGroup((job.scrape_group || '').trim())
+      setScrapeGroup(canonicalScrapeGroup(job.scrape_group))
     } else {
       resetForm()
     }
@@ -79,7 +85,7 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
     setMetricsPath('')
     setLabels([])
     setErrors({})
-    setScrapeGroup('')
+    setScrapeGroup(SCRAPE_GROUP_UNGROUPED)
     setNewGroupName('')
   }
 
@@ -116,7 +122,6 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
       }
     })
 
-    const g = scrapeGroup.trim()
     const newJob: Omit<ScrapeConfig, 'id'> = {
       job_name: jobName.trim(),
       static_configs: [
@@ -128,7 +133,7 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
       ...(scrapeInterval.trim() ? { scrape_interval: scrapeInterval.trim() } : {}),
       ...(scrapeTimeout.trim() ? { scrape_timeout: scrapeTimeout.trim() } : {}),
       ...(metricsPath.trim() ? { metrics_path: metricsPath.trim() } : {}),
-      ...(g ? { scrape_group: g } : { scrape_group: undefined }),
+      scrape_group: canonicalScrapeGroup(scrapeGroup),
     }
 
     if (job) {
@@ -201,17 +206,17 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
               Groups only affect YAML ordering and comment headers; they are not Prometheus fields.
             </p>
             <Select
-              value={scrapeGroup ? scrapeGroup : '_ungrouped'}
-              onValueChange={(v) => setScrapeGroup(v === '_ungrouped' ? '' : v)}
+              value={scrapeGroup || SCRAPE_GROUP_UNGROUPED}
+              onValueChange={(v) => setScrapeGroup(v)}
             >
               <SelectTrigger className="w-full max-w-md">
-                <SelectValue placeholder="Ungrouped" />
+                <SelectValue placeholder={SCRAPE_GROUP_UNGROUPED} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="_ungrouped">Ungrouped</SelectItem>
-                {metaGroups
-                  .filter((name) => String(name).trim().length > 0)
-                  .map((name) => (
+                <SelectItem value={SCRAPE_GROUP_UNGROUPED}>
+                  {SCRAPE_GROUP_UNGROUPED}
+                </SelectItem>
+                {metaGroups.map((name) => (
                   <SelectItem key={name} value={name}>
                     {name}
                   </SelectItem>

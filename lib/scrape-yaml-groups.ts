@@ -1,5 +1,6 @@
 import YAML from 'yaml'
 import type { ScrapeConfig } from '@/lib/prometheus-types'
+import { canonicalScrapeGroup } from '@/lib/scrape-group-utils'
 
 const GROUP_LINE = /^#\s*=+\s*(.+?)\s*=+\s*$/
 
@@ -62,22 +63,36 @@ export function stringifyScrapeConfigsGrouped(
 
   const byGroup = new Map<string, ScrapeConfig[]>()
   for (const j of jobs) {
-    const g = (j.scrape_group || '').trim()
+    const g = canonicalScrapeGroup(j.scrape_group)
     if (!byGroup.has(g)) byGroup.set(g, [])
     byGroup.get(g)!.push(j)
   }
 
-  const namedPresent = new Set(
-    jobs.map((j) => (j.scrape_group || '').trim()).filter(Boolean)
-  )
-  const metaOrder = (metaGroups || []).filter((g) => namedPresent.has(g))
-  const extraNamed = [...namedPresent].filter((g) => !metaOrder.includes(g)).sort()
-  const groupOrder = [...metaOrder, ...extraNamed]
-  const ungrouped = byGroup.get('') || []
+  const namedPresent = new Set(byGroup.keys())
+  const metaCanon = (metaGroups || []).map((g) => canonicalScrapeGroup(g))
+  const metaDedup: string[] = []
+  const seenMeta = new Set<string>()
+  for (const g of metaCanon) {
+    if (namedPresent.has(g) && !seenMeta.has(g)) {
+      metaDedup.push(g)
+      seenMeta.add(g)
+    }
+  }
+  const jobWalkOrder: string[] = []
+  const seenWalk = new Set<string>()
+  for (const j of jobs) {
+    const g = canonicalScrapeGroup(j.scrape_group)
+    if (!seenWalk.has(g)) {
+      jobWalkOrder.push(g)
+      seenWalk.add(g)
+    }
+  }
+  const rest = jobWalkOrder.filter((g) => !metaDedup.includes(g))
+  const groupOrder = [...metaDedup, ...rest]
 
-  const pushJobs = (list: ScrapeConfig[], withHeader: string | null) => {
+  const pushJobs = (list: ScrapeConfig[], header: string) => {
     const lines: string[] = []
-    if (withHeader) lines.push(`# ========= ${withHeader} =========`)
+    lines.push(`# ========= ${header} =========`)
     for (const job of list) {
       const stripped = stripJobForPrometheus(job)
       const chunk = YAML.stringify([stripped], { indent: 2 })
@@ -96,9 +111,6 @@ export function stringifyScrapeConfigsGrouped(
     const list = byGroup.get(g) || []
     if (list.length === 0) continue
     out.push(...pushJobs(list, g))
-  }
-  if (ungrouped.length > 0) {
-    out.push(...pushJobs(ungrouped, null))
   }
 
   return out.join('\n')

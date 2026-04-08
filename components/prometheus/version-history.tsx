@@ -210,7 +210,7 @@ export function VersionHistory() {
           }
         }}
         title="Apply version from history"
-        description="Current working YAML (left) and the selected snapshot (right). Applying only updates the editor until you save."
+        description="Current working YAML (left) and the selected snapshot (right). Apply checks out that snapshot as the saved baseline (no unsaved state until you edit)."
         beforeYaml={beforeRestoreYaml}
         afterYaml={afterRestoreYaml}
         confirmLabel="Apply version"

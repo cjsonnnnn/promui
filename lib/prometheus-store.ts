@@ -24,6 +24,10 @@ import {
   extractJobGroupsFromRaw,
   stringifyScrapeConfigsGrouped,
 } from '@/lib/scrape-yaml-groups'
+import {
+  SCRAPE_GROUP_UNGROUPED,
+  canonicalScrapeGroup,
+} from '@/lib/scrape-group-utils'
 
 export type ScrapeSortMode = 'name_asc' | 'name_desc' | 'ip_asc' | 'ip_desc' | null
 
@@ -123,7 +127,7 @@ interface PrometheusStore {
   setActiveSection: (section: ConfigSection | null) => void
   
   // Operations
-  sortTargetsInJobs: () => void
+  sortTargetsInJobs: (direction?: 'asc' | 'desc') => void
   normalizeFormatting: () => void
   importYaml: (yaml: string, filename?: string) => { success: boolean; errors: ValidationError[] }
   exportYaml: () => string
@@ -241,18 +245,35 @@ function editorResetPatch() {
 }
 
 function mergeMetaGroups(config: PrometheusConfig, jobs: ScrapeConfig[]): PrometheusConfig {
-  const names = new Set<string>(
-    [...(config.meta?.groups || [])]
-      .map((g) => String(g).trim())
-      .filter((g) => g.length > 0)
-  )
-  jobs.forEach((j) => {
-    const g = (j.scrape_group || '').trim()
-    if (g) names.add(g)
-  })
+  const prevDedup: string[] = []
+  const seenPrev = new Set<string>()
+  for (const g of config.meta?.groups || []) {
+    const c = canonicalScrapeGroup(g)
+    if (!seenPrev.has(c)) {
+      prevDedup.push(c)
+      seenPrev.add(c)
+    }
+  }
+
+  const ordered: string[] = []
+  const seen = new Set<string>()
+  for (const g of prevDedup) {
+    if (!seen.has(g)) {
+      ordered.push(g)
+      seen.add(g)
+    }
+  }
+  for (const j of jobs) {
+    const g = canonicalScrapeGroup(j.scrape_group)
+    if (!seen.has(g)) {
+      ordered.push(g)
+      seen.add(g)
+    }
+  }
+
   return {
     ...config,
-    meta: { groups: Array.from(names).sort() },
+    meta: { groups: ordered },
   }
 }
 
@@ -264,9 +285,14 @@ const fromConfig = (config: PrometheusConfig, rawYaml?: string): ScrapeConfig[] 
     const groups = extractJobGroupsFromRaw(rawYaml)
     arr.forEach((j, i) => {
       const g = groups[i]
-      if (g) j.scrape_group = g
+      if (g !== undefined && String(g).trim() !== '') {
+        j.scrape_group = String(g).trim()
+      }
     })
   }
+  arr.forEach((j) => {
+    j.scrape_group = canonicalScrapeGroup(j.scrape_group)
+  })
   return arr
 }
 
@@ -314,51 +340,73 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         set((s) => ({ saveDiffRequestNonce: s.saveDiffRequestNonce + 1 })),
       clearResumeAfterSave: () => set({ resumeAfterSave: null }),
       addScrapeGroup: (name) => {
-        const t = name.trim()
-        if (!t) return
+        const t = canonicalScrapeGroup(name.trim())
+        if (!t || t === SCRAPE_GROUP_UNGROUPED) return
         set((state) => {
-          const groups = new Set([...(state.config.meta?.groups || []), t])
+          const cur = [...(state.config.meta?.groups || [])].map(canonicalScrapeGroup)
+          if (cur.includes(t)) return state
+          const nextMeta = [...cur, t]
           return {
-            config: {
-              ...state.config,
-              meta: { groups: Array.from(groups).sort() },
-            },
+            config: mergeMetaGroups(
+              { ...state.config, meta: { groups: nextMeta } },
+              state.scrapeConfigs
+            ),
           }
         })
       },
       renameScrapeGroup: (from, to) => {
-        const f = from.trim()
-        const t = to.trim()
+        const f = canonicalScrapeGroup(from)
+        const t = canonicalScrapeGroup(to)
         if (!f || !t || f === t) return
-        set((state) => ({
-          scrapeConfigs: state.scrapeConfigs.map((j) =>
-            (j.scrape_group || '').trim() === f ? { ...j, scrape_group: t } : j
-          ),
-          config: {
-            ...state.config,
-            meta: {
-              groups: (state.config.meta?.groups || [])
-                .map((g) => (g === f ? t : g))
-                .filter((g, i, a) => a.indexOf(g) === i)
-                .sort(),
-            },
-          },
-        }))
+        set((state) => {
+          const nextScrape = state.scrapeConfigs.map((j) =>
+            canonicalScrapeGroup(j.scrape_group) === f ? { ...j, scrape_group: t } : j
+          )
+          const metaList = (state.config.meta?.groups || []).map((g) =>
+            canonicalScrapeGroup(g) === f ? t : g
+          )
+          const dedup: string[] = []
+          const seen = new Set<string>()
+          for (const g of metaList) {
+            const c = canonicalScrapeGroup(g)
+            if (!seen.has(c)) {
+              dedup.push(c)
+              seen.add(c)
+            }
+          }
+          return {
+            scrapeConfigs: nextScrape,
+            config: mergeMetaGroups(
+              { ...state.config, meta: { groups: dedup } },
+              nextScrape
+            ),
+          }
+        })
       },
       deleteScrapeGroup: (name) => {
-        const n = name.trim()
-        if (!n) return
-        set((state) => ({
-          scrapeConfigs: state.scrapeConfigs.map((j) =>
-            (j.scrape_group || '').trim() === n ? { ...j, scrape_group: undefined } : j
-          ),
-          config: {
-            ...state.config,
-            meta: {
-              groups: (state.config.meta?.groups || []).filter((g) => g !== n),
-            },
-          },
-        }))
+        const n = canonicalScrapeGroup(name)
+        if (!n || n === SCRAPE_GROUP_UNGROUPED) return
+        set((state) => {
+          const nextScrape = state.scrapeConfigs.map((j) =>
+            canonicalScrapeGroup(j.scrape_group) === n
+              ? { ...j, scrape_group: SCRAPE_GROUP_UNGROUPED }
+              : j
+          )
+          return {
+            scrapeConfigs: nextScrape,
+            config: mergeMetaGroups(
+              {
+                ...state.config,
+                meta: {
+                  groups: (state.config.meta?.groups || []).filter(
+                    (g) => canonicalScrapeGroup(g) !== n
+                  ),
+                },
+              },
+              nextScrape
+            ),
+          }
+        })
       },
       undoStack: [],
       redoStack: [],
@@ -663,7 +711,10 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       // Config actions
       setConfig: (config) => {
         const scrapeConfigs = fromConfig(config)
-        set({ config, scrapeConfigs })
+        set({
+          config: mergeMetaGroups({ ...config, meta: undefined }, scrapeConfigs),
+          scrapeConfigs,
+        })
       },
 
       updateGlobal: (global) => {
@@ -771,37 +822,67 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       },
 
       // Scrape config actions
-      setScrapeConfigs: (jobs) => set({ scrapeConfigs: jobs }),
+      setScrapeConfigs: (jobs) =>
+        set((state) => {
+          const next = jobs.map((j) => ({
+            ...j,
+            scrape_group: canonicalScrapeGroup(j.scrape_group),
+          }))
+          return {
+            scrapeConfigs: next,
+            config: mergeMetaGroups(state.config, next),
+          }
+        }),
 
       addScrapeConfig: (job) => {
         const snapshot = { config: clone(get().config), scrapeConfigs: clone(get().scrapeConfigs) }
-        const newJob: ScrapeConfig = { ...job, id: generateId() }
-        set((state) => ({
-          scrapeConfigs: [...state.scrapeConfigs, newJob],
-          undoStack: [...state.undoStack, snapshot],
-          redoStack: [],
-        }))
+        const base: Omit<ScrapeConfig, 'id'> = {
+          ...job,
+          scrape_group: canonicalScrapeGroup(job.scrape_group),
+        }
+        const newJob: ScrapeConfig = { ...base, id: generateId() }
+        set((state) => {
+          const nextScrape = [...state.scrapeConfigs, newJob]
+          return {
+            scrapeConfigs: nextScrape,
+            config: mergeMetaGroups(state.config, nextScrape),
+            undoStack: [...state.undoStack, snapshot],
+            redoStack: [],
+          }
+        })
       },
 
       updateScrapeConfig: (id, updates) => {
         const snapshot = { config: clone(get().config), scrapeConfigs: clone(get().scrapeConfigs) }
-        set((state) => ({
-          scrapeConfigs: state.scrapeConfigs.map((job) =>
-            job.id === id ? { ...job, ...updates } : job
-          ),
-          undoStack: [...state.undoStack, snapshot],
-          redoStack: [],
-        }))
+        const patch: Partial<ScrapeConfig> = { ...updates }
+        if ('scrape_group' in patch) {
+          patch.scrape_group = canonicalScrapeGroup(patch.scrape_group as string | undefined)
+        }
+        set((state) => {
+          const nextScrape = state.scrapeConfigs.map((job) =>
+            job.id === id ? { ...job, ...patch } : job
+          )
+          return {
+            scrapeConfigs: nextScrape,
+            config: mergeMetaGroups(state.config, nextScrape),
+            undoStack: [...state.undoStack, snapshot],
+            redoStack: [],
+          }
+        })
       },
 
       deleteScrapeConfig: (id) => {
         const snapshot = { config: clone(get().config), scrapeConfigs: clone(get().scrapeConfigs) }
-        set((state) => ({
-          scrapeConfigs: state.scrapeConfigs.filter((job) => job.id !== id),
-          activeScrapeConfigId: state.activeScrapeConfigId === id ? null : state.activeScrapeConfigId,
-          undoStack: [...state.undoStack, snapshot],
-          redoStack: [],
-        }))
+        set((state) => {
+          const nextScrape = state.scrapeConfigs.filter((job) => job.id !== id)
+          return {
+            scrapeConfigs: nextScrape,
+            config: mergeMetaGroups(state.config, nextScrape),
+            activeScrapeConfigId: state.activeScrapeConfigId === id ? null : state.activeScrapeConfigId,
+            undoStack: [...state.undoStack, snapshot],
+            redoStack: [],
+          }
+        })
       },
 
       duplicateScrapeConfig: (id) => {
@@ -812,13 +893,18 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             ...job,
             id: generateId(),
             job_name: `${job.job_name || 'job'}-copy`,
+            scrape_group: canonicalScrapeGroup(job.scrape_group),
           }
           const snapshot = { config: clone(get().config), scrapeConfigs: clone(scrapeConfigs) }
-          set((state) => ({
-            scrapeConfigs: [...scrapeConfigs, newJob],
-            undoStack: [...state.undoStack, snapshot],
-            redoStack: [],
-          }))
+          set((state) => {
+            const nextScrape = [...scrapeConfigs, newJob]
+            return {
+              scrapeConfigs: nextScrape,
+              config: mergeMetaGroups(state.config, nextScrape),
+              undoStack: [...state.undoStack, snapshot],
+              redoStack: [],
+            }
+          })
         }
       },
 
@@ -901,16 +987,18 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       setActiveSection: (section) => set({ activeSection: section }),
 
       // Operations
-      sortTargetsInJobs: () => {
+      sortTargetsInJobs: (direction = 'asc') => {
+        const dir = direction === 'desc' ? -1 : 1
         const snapshot = { config: clone(get().config), scrapeConfigs: clone(get().scrapeConfigs) }
         set((state) => ({
           scrapeConfigs: state.scrapeConfigs.map((job) => ({
             ...job,
             static_configs: (job.static_configs || []).map((config) => ({
               ...config,
-              targets: [...(config.targets || [])].sort((a, b) =>
-                compareIps(extractIp(a), extractIp(b))
-              ),
+              targets: [...(config.targets || [])].sort((a, b) => {
+                const c = compareIps(extractIp(a), extractIp(b))
+                return c * dir
+              }),
             })),
           })),
           undoStack: [...state.undoStack, snapshot],
@@ -1036,6 +1124,8 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         if (result.success) {
           set({ undoStack: [], redoStack: [] })
           get().validateConfig()
+          set({ originalYaml: get().exportYaml() })
+          set((s) => ({ yamlTouchCounter: s.yamlTouchCounter + 1 }))
         }
       },
 

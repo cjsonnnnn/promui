@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, Fragment } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { usePrometheusStore } from '@/lib/prometheus-store'
 import { ScrapeConfig } from '@/lib/prometheus-types'
 import { Button } from '@/components/ui/button'
@@ -14,14 +14,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import {
   Dialog,
   DialogContent,
@@ -49,6 +41,10 @@ import {
 import { cn } from '@/lib/utils'
 import { JobEditorModal } from '../job-editor-modal'
 import {
+  SCRAPE_GROUP_UNGROUPED,
+  canonicalScrapeGroup,
+} from '@/lib/scrape-group-utils'
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -60,6 +56,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+
+function prefixSectionId(prefix: string) {
+  return `p:${prefix}`
+}
+
+function groupSectionId(name: string) {
+  return `g:${name}`
+}
 
 export function ScrapeConfigsEditor() {
   const {
@@ -87,7 +91,20 @@ export function ScrapeConfigsEditor() {
   const [scrapeGroupFilter, setScrapeGroupFilter] = useState<string>('all')
   const [groupManageOpen, setGroupManageOpen] = useState(false)
   const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({})
+  const [groupKeyOrder, setGroupKeyOrder] = useState<'stable' | 'asc' | 'desc'>('stable')
+  const [collapsedBundleSections, setCollapsedBundleSections] = useState<Set<string>>(
+    () => new Set()
+  )
   const allCollapsed = scrapeConfigs.length > 0 && collapsedJobs.size === scrapeConfigs.length
+
+  const toggleBundleSection = useCallback((id: string) => {
+    setCollapsedBundleSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   const filteredJobs = useMemo(() => {
     if (!searchQuery) return scrapeConfigs
@@ -105,32 +122,52 @@ export function ScrapeConfigsEditor() {
 
   const jobsAfterGroupFilter = useMemo(() => {
     if (scrapeGroupFilter === 'all') return filteredJobs
-    if (scrapeGroupFilter === '__ungrouped__') {
-      return filteredJobs.filter((j) => !(j.scrape_group || '').trim())
+    if (scrapeGroupFilter === SCRAPE_GROUP_UNGROUPED) {
+      return filteredJobs.filter(
+        (j) => canonicalScrapeGroup(j.scrape_group) === SCRAPE_GROUP_UNGROUPED
+      )
     }
-    return filteredJobs.filter((j) => (j.scrape_group || '').trim() === scrapeGroupFilter)
+    return filteredJobs.filter(
+      (j) => canonicalScrapeGroup(j.scrape_group) === scrapeGroupFilter
+    )
   }, [filteredJobs, scrapeGroupFilter])
 
   const tableGroupSections = useMemo(() => {
     const m = new Map<string, ScrapeConfig[]>()
     for (const job of jobsAfterGroupFilter) {
-      const key = (job.scrape_group || '').trim() || '__ungrouped__'
+      const key = canonicalScrapeGroup(job.scrape_group)
       if (!m.has(key)) m.set(key, [])
       m.get(key)!.push(job)
     }
-    const named = [...metaGroups.filter((g) => m.has(g)), ...[...m.keys()].filter((k) => k !== '__ungrouped__' && !metaGroups.includes(k)).sort()]
-    const ordered: string[] = [...named]
-    if (m.has('__ungrouped__') && !ordered.includes('__ungrouped__')) {
-      ordered.push('__ungrouped__')
+    let keys: string[]
+    if (groupKeyOrder === 'stable') {
+      const ordered: string[] = []
+      const seen = new Set<string>()
+      for (const g of metaGroups) {
+        const c = canonicalScrapeGroup(g)
+        if (m.has(c) && !seen.has(c)) {
+          ordered.push(c)
+          seen.add(c)
+        }
+      }
+      for (const k of m.keys()) {
+        if (!seen.has(k)) {
+          ordered.push(k)
+          seen.add(k)
+        }
+      }
+      keys = ordered
+    } else {
+      keys = [...m.keys()].sort((a, b) =>
+        groupKeyOrder === 'asc' ? a.localeCompare(b) : b.localeCompare(a)
+      )
     }
-    return ordered
-      .filter((k) => m.has(k))
-      .map((key) => ({
-        key,
-        label: key === '__ungrouped__' ? 'Ungrouped' : key,
-        jobs: m.get(key)!,
-      }))
-  }, [jobsAfterGroupFilter, metaGroups])
+    return keys.map((key) => ({
+      key,
+      label: key,
+      jobs: m.get(key)!,
+    }))
+  }, [jobsAfterGroupFilter, metaGroups, groupKeyOrder])
 
   const groupedJobs = useMemo(() => {
     if (!showGroupView) return null
@@ -144,6 +181,27 @@ export function ScrapeConfigsEditor() {
     })
     return groups
   }, [showGroupView, jobsAfterGroupFilter])
+
+  const prefixEntries = useMemo(() => {
+    if (!groupedJobs) return [] as [string, ScrapeConfig[]][]
+    let e = Array.from(groupedJobs.entries())
+    if (groupKeyOrder === 'asc') {
+      e = [...e].sort((a, b) => a[0].localeCompare(b[0]))
+    } else if (groupKeyOrder === 'desc') {
+      e = [...e].sort((a, b) => b[0].localeCompare(a[0]))
+    }
+    return e
+  }, [groupedJobs, groupKeyOrder])
+
+  const expandAllBundleSections = () => setCollapsedBundleSections(new Set())
+
+  const collapseAllBundleSections = () => {
+    const ids =
+      showGroupView && groupedJobs
+        ? Array.from(groupedJobs.keys()).map(prefixSectionId)
+        : tableGroupSections.map((s) => groupSectionId(s.key))
+    setCollapsedBundleSections(new Set(ids))
+  }
 
   const handleDelete = (id: string) => {
     deleteScrapeConfig(id)
@@ -212,14 +270,28 @@ export function ScrapeConfigsEditor() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All jobs</SelectItem>
-            <SelectItem value="__ungrouped__">Ungrouped only</SelectItem>
+            <SelectItem value={SCRAPE_GROUP_UNGROUPED}>Ungrouped only</SelectItem>
             {metaGroups
-              .filter((g) => String(g).trim().length > 0)
+              .filter((g) => canonicalScrapeGroup(g) !== SCRAPE_GROUP_UNGROUPED)
               .map((g) => (
               <SelectItem key={g} value={g}>
                 {g}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={groupKeyOrder}
+          onValueChange={(v) => setGroupKeyOrder(v as 'stable' | 'asc' | 'desc')}
+        >
+          <SelectTrigger className="h-9 w-[200px] text-xs">
+            <SelectValue placeholder="Group order" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="stable">Groups: file order</SelectItem>
+            <SelectItem value="asc">Groups: A–Z</SelectItem>
+            <SelectItem value="desc">Groups: Z–A</SelectItem>
           </SelectContent>
         </Select>
 
@@ -253,8 +325,13 @@ export function ScrapeConfigsEditor() {
               Target IP ↓
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={sortTargetsInJobs}>
-              Sort Targets in Jobs
+            <DropdownMenuItem onClick={() => sortTargetsInJobs('asc')}>
+              <ArrowUp className="mr-2 h-4 w-4" />
+              Sort Targets in Jobs ↑
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => sortTargetsInJobs('desc')}>
+              <ArrowDown className="mr-2 h-4 w-4" />
+              Sort Targets in Jobs ↓
             </DropdownMenuItem>
             <DropdownMenuItem onClick={normalizeFormatting}>
               Normalize Formatting
@@ -267,7 +344,13 @@ export function ScrapeConfigsEditor() {
           size="sm"
           onClick={() => (allCollapsed ? expandAll() : collapseAll())}
         >
-          {allCollapsed ? 'Expand All' : 'Collapse All'}
+          {allCollapsed ? 'Expand all jobs' : 'Collapse all jobs'}
+        </Button>
+        <Button variant="outline" size="sm" onClick={expandAllBundleSections}>
+          Expand all groups
+        </Button>
+        <Button variant="outline" size="sm" onClick={collapseAllBundleSections}>
+          Collapse all groups
         </Button>
       </div>
 
@@ -275,82 +358,97 @@ export function ScrapeConfigsEditor() {
       <ScrollArea className="flex-1">
         {showGroupView && groupedJobs ? (
           <div className="p-4 space-y-4">
-            {Array.from(groupedJobs.entries()).map(([prefix, jobs]) => (
-              <div key={prefix} className="rounded-lg border border-border">
-                <div className="flex items-center justify-between bg-muted px-4 py-2">
-                  <div className="flex items-center gap-2">
-                    <FolderTree className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-medium">{prefix}-*</span>
-                    <Badge variant="secondary">{jobs.length} jobs</Badge>
-                  </div>
+            {prefixEntries.map(([prefix, jobs]) => {
+              const sid = prefixSectionId(prefix)
+              const bundleCollapsed = collapsedBundleSections.has(sid)
+              return (
+                <div key={prefix} className="rounded-lg border border-border">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between bg-muted px-4 py-2 text-left"
+                    onClick={() => toggleBundleSection(sid)}
+                  >
+                    <div className="flex items-center gap-2">
+                      {bundleCollapsed ? (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <FolderTree className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">{prefix}-*</span>
+                      <Badge variant="secondary">{jobs.length} jobs</Badge>
+                    </div>
+                  </button>
+                  {!bundleCollapsed ? (
+                    <div className="divide-y divide-border">
+                      {jobs.map((job) => (
+                        <JobRow
+                          key={job.id}
+                          job={job}
+                          isCollapsed={collapsedJobs.has(job.id)}
+                          onToggle={() => toggleCollapse(job.id)}
+                          onEdit={() => setEditingJob(job)}
+                          onDuplicate={() => duplicateScrapeConfig(job.id)}
+                          onDelete={() => setDeleteConfirm(job.id)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-                <div className="divide-y divide-border">
-                  {jobs.map((job) => (
-                    <JobRow
-                      key={job.id}
-                      job={job}
-                      isCollapsed={collapsedJobs.has(job.id)}
-                      onToggle={() => toggleCollapse(job.id)}
-                      onEdit={() => setEditingJob(job)}
-                      onDuplicate={() => duplicateScrapeConfig(job.id)}
-                      onDelete={() => setDeleteConfirm(job.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
+              )
+            })}
+          </div>
+        ) : jobsAfterGroupFilter.length === 0 ? (
+          <div className="flex h-40 flex-col items-center justify-center gap-2 p-6">
+            <Server className="h-8 w-8 text-muted-foreground/50" />
+            <p className="text-muted-foreground text-sm">
+              {searchQuery || scrapeGroupFilter !== 'all'
+                ? 'No matching jobs found'
+                : 'No scrape configs defined'}
+            </p>
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-8"></TableHead>
-                <TableHead>Job Name</TableHead>
-                <TableHead>Targets</TableHead>
-                <TableHead>Interval</TableHead>
-                <TableHead>Timeout</TableHead>
-                <TableHead>Path</TableHead>
-                <TableHead className="w-12"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {jobsAfterGroupFilter.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center">
-                    <div className="flex flex-col items-center gap-2">
-                      <Server className="h-8 w-8 text-muted-foreground/50" />
-                      <p className="text-muted-foreground">
-                        {searchQuery || scrapeGroupFilter !== 'all'
-                          ? 'No matching jobs found'
-                          : 'No scrape configs defined'}
-                      </p>
+          <div className="p-4 space-y-4">
+            {tableGroupSections.map((section) => {
+              const sid = groupSectionId(section.key)
+              const bundleCollapsed = collapsedBundleSections.has(sid)
+              return (
+                <div key={section.key} className="rounded-lg border border-border">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between bg-muted px-4 py-2 text-left"
+                    onClick={() => toggleBundleSection(sid)}
+                  >
+                    <div className="flex items-center gap-2">
+                      {bundleCollapsed ? (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <FolderTree className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">{section.label}</span>
+                      <Badge variant="secondary">{section.jobs.length} jobs</Badge>
                     </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                tableGroupSections.map((section) => (
-                  <Fragment key={section.key}>
-                    <TableRow className="bg-muted/40 hover:bg-muted/40">
-                      <TableCell colSpan={7} className="py-2 text-xs font-semibold text-muted-foreground">
-                        {section.label}
-                      </TableCell>
-                    </TableRow>
-                    {section.jobs.map((job) => (
-                      <JobTableRow
-                        key={job.id}
-                        job={job}
-                        isCollapsed={collapsedJobs.has(job.id)}
-                        onToggle={() => toggleCollapse(job.id)}
-                        onEdit={() => setEditingJob(job)}
-                        onDuplicate={() => duplicateScrapeConfig(job.id)}
-                        onDelete={() => setDeleteConfirm(job.id)}
-                      />
-                    ))}
-                  </Fragment>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                  </button>
+                  {!bundleCollapsed ? (
+                    <div className="divide-y divide-border">
+                      {section.jobs.map((job) => (
+                        <JobRow
+                          key={job.id}
+                          job={job}
+                          isCollapsed={collapsedJobs.has(job.id)}
+                          onToggle={() => toggleCollapse(job.id)}
+                          onEdit={() => setEditingJob(job)}
+                          onDuplicate={() => duplicateScrapeConfig(job.id)}
+                          onDelete={() => setDeleteConfirm(job.id)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
         )}
       </ScrollArea>
 
@@ -371,7 +469,8 @@ export function ScrapeConfigsEditor() {
           <DialogHeader>
             <DialogTitle>Scrape groups</DialogTitle>
             <DialogDescription>
-              Rename or remove groups. Removing a group unassigns its jobs (they appear as Ungrouped).
+              Rename or remove groups. Removing a group moves its jobs to{" "}
+              {SCRAPE_GROUP_UNGROUPED}. The {SCRAPE_GROUP_UNGROUPED} group cannot be deleted.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2 max-h-[320px] overflow-y-auto">
@@ -413,6 +512,7 @@ export function ScrapeConfigsEditor() {
                       variant="outline"
                       size="sm"
                       className="text-destructive"
+                      disabled={canonicalScrapeGroup(g) === SCRAPE_GROUP_UNGROUPED}
                       onClick={() => {
                         deleteScrapeGroup(g)
                         setRenameDrafts((d) => {
@@ -551,103 +651,3 @@ function JobRow({
   )
 }
 
-function JobTableRow({
-  job,
-  isCollapsed,
-  onToggle,
-  onEdit,
-  onDuplicate,
-  onDelete,
-}: JobRowProps) {
-  const targetCount = (job.static_configs || []).reduce(
-    (sum, sc) => sum + (sc.targets?.length || 0),
-    0
-  )
-
-  return (
-    <>
-      <TableRow className="cursor-pointer hover:bg-muted/50">
-        <TableCell>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onToggle}>
-            {isCollapsed ? (
-              <ChevronRight className="h-4 w-4" />
-            ) : (
-              <ChevronDown className="h-4 w-4" />
-            )}
-          </Button>
-        </TableCell>
-        <TableCell className="font-medium">{job.job_name}</TableCell>
-        <TableCell>
-          <Badge variant="outline">{targetCount}</Badge>
-        </TableCell>
-        <TableCell className="text-muted-foreground">
-          {job.scrape_interval || '-'}
-        </TableCell>
-        <TableCell className="text-muted-foreground">
-          {job.scrape_timeout || '-'}
-        </TableCell>
-        <TableCell className="text-muted-foreground font-mono text-xs">
-          {job.metrics_path || '/metrics'}
-        </TableCell>
-        <TableCell>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={onEdit}>
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onDuplicate}>
-                <Copy className="mr-2 h-4 w-4" />
-                Duplicate
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={onDelete}
-                className="text-destructive"
-                title="Remove this scrape job"
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete job
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </TableCell>
-      </TableRow>
-
-      {!isCollapsed && (
-        <TableRow>
-          <TableCell colSpan={7} className="bg-muted/30 p-0">
-            <div className="px-12 py-3 space-y-1">
-              {(job.static_configs || []).map((sc, i) =>
-                (sc.targets || []).map((target, j) => (
-                  <div
-                    key={`${i}-${j}`}
-                    className="flex items-center gap-2 text-sm"
-                  >
-                    <span className="font-mono text-muted-foreground">
-                      {target}
-                    </span>
-                    {sc.labels && Object.keys(sc.labels).length > 0 && (
-                      <div className="flex gap-1">
-                        {Object.entries(sc.labels).map(([k, v]) => (
-                          <Badge key={k} variant="secondary" className="text-xs">
-                            {k}={v}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </TableCell>
-        </TableRow>
-      )}
-    </>
-  )
-}
