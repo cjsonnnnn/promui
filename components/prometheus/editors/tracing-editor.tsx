@@ -1,14 +1,24 @@
 "use client"
 
 import { Activity } from "lucide-react"
+import { usePrometheusStore } from "@/lib/prometheus-store"
+import { cn } from "@/lib/utils"
 
 /**
  * Full tracing UI was causing runtime errors (e.g. invalid Select values in Radix).
  * Structured editing for tracing is not implemented in this build.
  */
 export function TracingEditor() {
+  const { activeFileId, files } = usePrometheusStore()
+  const hasResolvedFile = Boolean(
+    activeFileId && files.some((f) => f.id === activeFileId)
+  )
+
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+    <div className={cn(
+      "flex h-full flex-col items-center justify-center gap-4 p-8 text-center",
+      !hasResolvedFile && "pointer-events-none opacity-50"
+    )}>
       <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-muted">
         <Activity className="h-7 w-7 text-muted-foreground" />
       </div>

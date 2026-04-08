@@ -373,7 +373,7 @@ export function ScrapeConfigsEditor() {
           <DropdownMenuContent align="end">
             {/* Sort Menu - All sorting options in one place */}
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger disabled={isDisabled}>
                 <ArrowUpDown className="mr-2 h-4 w-4" />
                 Sort
               </DropdownMenuSubTrigger>

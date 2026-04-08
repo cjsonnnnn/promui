@@ -80,6 +80,17 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     return () => setFlushEditorYamlToStore(null)
   }, [setFlushEditorYamlToStore])
 
+  // Cleanup editor on unmount to prevent memory leaks and freezes
+  useEffect(() => {
+    return () => {
+      const ed = editorRef.current
+      if (ed) {
+        ed.dispose()
+        editorRef.current = null
+      }
+    }
+  }, [])
+
   const handleEditorMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
     editorRef.current = editor
     editor.onDidFocusEditorWidget(() => {
@@ -275,6 +286,7 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
           </div>
         ) : (
           <Editor
+            key={`yaml-editor-${activeFileId}`}
             height="100%"
             defaultLanguage="yaml"
             theme="vs-dark"
