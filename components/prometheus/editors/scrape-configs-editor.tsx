@@ -213,7 +213,9 @@ export function ScrapeConfigsEditor() {
           <SelectContent>
             <SelectItem value="all">All jobs</SelectItem>
             <SelectItem value="__ungrouped__">Ungrouped only</SelectItem>
-            {metaGroups.map((g) => (
+            {metaGroups
+              .filter((g) => String(g).trim().length > 0)
+              .map((g) => (
               <SelectItem key={g} value={g}>
                 {g}
               </SelectItem>

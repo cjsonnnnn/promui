@@ -53,15 +53,15 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
   useEffect(() => {
     if (job) {
       setJobName(job.job_name)
+      const firstStatic = (job.static_configs || [])[0]
+      const firstTargets = firstStatic?.targets
       setTargets(
-        job.static_configs[0]?.targets.length > 0
-          ? job.static_configs[0].targets
-          : ['']
+        firstTargets && firstTargets.length > 0 ? [...firstTargets] : ['']
       )
       setScrapeInterval(job.scrape_interval || '')
       setScrapeTimeout(job.scrape_timeout || '')
       setMetricsPath(job.metrics_path || '')
-      const existingLabels = job.static_configs[0]?.labels || {}
+      const existingLabels = firstStatic?.labels || {}
       setLabels(
         Object.entries(existingLabels).map(([key, value]) => ({ key, value }))
       )
@@ -209,7 +209,9 @@ export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps)
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="_ungrouped">Ungrouped</SelectItem>
-                {metaGroups.map((name) => (
+                {metaGroups
+                  .filter((name) => String(name).trim().length > 0)
+                  .map((name) => (
                   <SelectItem key={name} value={name}>
                     {name}
                   </SelectItem>

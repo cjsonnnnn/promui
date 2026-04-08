@@ -58,6 +58,8 @@ interface PrometheusStore {
   /** Bumped when Monaco YAML edits (debounced) so Save/dirty UI updates. */
   yamlTouchCounter: number
   touchYamlFromEditor: () => void
+  /** Canonical compare only; safe during React render (does not flush Monaco). */
+  peekUnsavedYaml: () => boolean
   hasUnsavedYamlChanges: () => boolean
   discardUnsavedChanges: () => void
   /** After successful save from Save dialog, run once (e.g. switch file). */
@@ -239,7 +241,11 @@ function editorResetPatch() {
 }
 
 function mergeMetaGroups(config: PrometheusConfig, jobs: ScrapeConfig[]): PrometheusConfig {
-  const names = new Set<string>([...(config.meta?.groups || [])])
+  const names = new Set<string>(
+    [...(config.meta?.groups || [])]
+      .map((g) => String(g).trim())
+      .filter((g) => g.length > 0)
+  )
   jobs.forEach((j) => {
     const g = (j.scrape_group || '').trim()
     if (g) names.add(g)
@@ -288,11 +294,14 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       setFlushEditorYamlToStore: (fn) => set({ flushEditorYamlToStore: fn }),
       yamlTouchCounter: 0,
       touchYamlFromEditor: () => set((s) => ({ yamlTouchCounter: s.yamlTouchCounter + 1 })),
-      hasUnsavedYamlChanges: () => {
-        get().flushEditorYamlToStore?.()
+      peekUnsavedYaml: () => {
         const cur = canonicalYamlFingerprint(get().exportYaml())
         const sav = canonicalYamlFingerprint(get().originalYaml)
         return cur !== sav
+      },
+      hasUnsavedYamlChanges: () => {
+        get().flushEditorYamlToStore?.()
+        return get().peekUnsavedYaml()
       },
       discardUnsavedChanges: () => {
         const { originalYaml } = get()

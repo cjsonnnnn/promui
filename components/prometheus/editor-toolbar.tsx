@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { usePrometheusStore } from "@/lib/prometheus-store"
@@ -31,13 +31,9 @@ export function EditorToolbar() {
     saveDiffRequestNonce,
   } = usePrometheusStore()
 
-  const dirtyProbe = usePrometheusStore((s) => ({
-    yt: s.yamlTouchCounter,
-    sc: s.scrapeConfigs,
-    cfg: s.config,
-    oy: s.originalYaml,
-    af: s.activeFileId,
-  }))
+  const yamlTouchCounter = usePrometheusStore((s) => s.yamlTouchCounter)
+  const scrapeConfigs = usePrometheusStore((s) => s.scrapeConfigs)
+  const config = usePrometheusStore((s) => s.config)
 
   const [showSaveDiff, setShowSaveDiff] = useState(false)
   const [saveError, setSaveError] = useState("")
@@ -50,10 +46,14 @@ export function EditorToolbar() {
 
   const activeLabel = resolvedFile?.filename ?? "No file selected"
 
-  const hasUnsaved = useMemo(
-    () => usePrometheusStore.getState().hasUnsavedYamlChanges(),
-    [dirtyProbe]
+  const [hasUnsaved, setHasUnsaved] = useState(() =>
+    usePrometheusStore.getState().peekUnsavedYaml()
   )
+
+  // Never call `hasUnsavedYamlChanges()` (flush → zustand set) during render — it triggers React error boundaries.
+  useLayoutEffect(() => {
+    setHasUnsaved(usePrometheusStore.getState().peekUnsavedYaml())
+  }, [yamlTouchCounter, originalYaml, activeFileId, scrapeConfigs, config])
 
   const canSave =
     Boolean(resolvedFile) &&
