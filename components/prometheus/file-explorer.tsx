@@ -219,14 +219,12 @@ export function FileExplorer() {
         setConflictError(saved.error || "Failed to create file")
         return
       }
-      await ensureInitialHistorySnapshot(next, yaml)
     } else {
       const saved = await saveYamlToDisk(next, conflict.yaml)
       if (!saved.success) {
         setConflictError(saved.error || "Failed to save upload")
         return
       }
-      await ensureInitialHistorySnapshot(next, conflict.yaml)
     }
     setConflict(null)
     setIsNewFileOpen(false)
@@ -235,6 +233,7 @@ export function FileExplorer() {
     setErrorMessage("")
     await refreshFiles()
     await setActiveFile(next)
+    await ensureInitialHistorySnapshot(next)
   }
 
   return (

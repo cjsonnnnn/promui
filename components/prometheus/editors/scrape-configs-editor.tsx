@@ -94,9 +94,9 @@ export function ScrapeConfigsEditor() {
     const query = searchQuery.toLowerCase()
     return scrapeConfigs.filter(
       (job) =>
-        job.job_name.toLowerCase().includes(query) ||
-        job.static_configs.some((sc) =>
-          sc.targets.some((t) => t.toLowerCase().includes(query))
+        (job.job_name || '').toLowerCase().includes(query) ||
+        (job.static_configs || []).some((sc) =>
+          (sc.targets || []).some((t) => t.toLowerCase().includes(query))
         )
     )
   }, [scrapeConfigs, searchQuery])
@@ -136,7 +136,7 @@ export function ScrapeConfigsEditor() {
     if (!showGroupView) return null
     const groups = new Map<string, ScrapeConfig[]>()
     jobsAfterGroupFilter.forEach((job) => {
-      const match = job.job_name.match(/^([a-zA-Z0-9]+)-/)
+      const match = (job.job_name || '').match(/^([a-zA-Z0-9]+)-/)
       const prefix = match ? match[1] : 'other'
       const existing = groups.get(prefix) || []
       existing.push(job)
@@ -151,7 +151,10 @@ export function ScrapeConfigsEditor() {
   }
 
   const getTargetCount = (job: ScrapeConfig) => {
-    return job.static_configs.reduce((sum, sc) => sum + sc.targets.length, 0)
+    return (job.static_configs || []).reduce(
+      (sum, sc) => sum + (sc.targets?.length || 0),
+      0
+    )
   }
 
   return (
@@ -476,8 +479,8 @@ function JobRow({
   onDuplicate,
   onDelete,
 }: JobRowProps) {
-  const targetCount = job.static_configs.reduce(
-    (sum, sc) => sum + sc.targets.length,
+  const targetCount = (job.static_configs || []).reduce(
+    (sum, sc) => sum + (sc.targets?.length || 0),
     0
   )
 
@@ -530,8 +533,8 @@ function JobRow({
 
       {!isCollapsed && (
         <div className="mt-2 ml-9 space-y-1">
-          {job.static_configs.map((sc, i) =>
-            sc.targets.map((target, j) => (
+          {(job.static_configs || []).map((sc, i) =>
+            (sc.targets || []).map((target, j) => (
               <div
                 key={`${i}-${j}`}
                 className="text-sm text-muted-foreground font-mono"
@@ -554,8 +557,8 @@ function JobTableRow({
   onDuplicate,
   onDelete,
 }: JobRowProps) {
-  const targetCount = job.static_configs.reduce(
-    (sum, sc) => sum + sc.targets.length,
+  const targetCount = (job.static_configs || []).reduce(
+    (sum, sc) => sum + (sc.targets?.length || 0),
     0
   )
 
@@ -618,8 +621,8 @@ function JobTableRow({
         <TableRow>
           <TableCell colSpan={7} className="bg-muted/30 p-0">
             <div className="px-12 py-3 space-y-1">
-              {job.static_configs.map((sc, i) =>
-                sc.targets.map((target, j) => (
+              {(job.static_configs || []).map((sc, i) =>
+                (sc.targets || []).map((target, j) => (
                   <div
                     key={`${i}-${j}`}
                     className="flex items-center gap-2 text-sm"

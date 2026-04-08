@@ -3,6 +3,7 @@
 import { create } from 'zustand'
 import {
   ScrapeConfig,
+  StaticConfig,
   ValidationError,
   PrometheusConfig,
   ConfigFile,
@@ -77,7 +78,8 @@ interface PrometheusStore {
     filename: string,
     yaml: string
   ) => Promise<{ success: boolean; error?: string; conflict?: boolean }>
-  ensureInitialHistorySnapshot: (filename: string, yaml: string) => Promise<void>
+  /** Call after `setActiveFile` so the snapshot matches canonical `exportYaml()`. */
+  ensureInitialHistorySnapshot: (filename: string) => Promise<void>
   saveYamlToDisk: (filename: string, yaml: string) => Promise<{ success: boolean; error?: string }>
   fileExists: (filename: string) => Promise<boolean>
   refreshConfigInfo: () => Promise<void>
@@ -169,14 +171,55 @@ const ensureValidConfigShape = (input: unknown): PrometheusConfig => {
   const base = (input && typeof input === 'object' && !Array.isArray(input)
     ? (input as Record<string, unknown>)
     : {}) as Partial<PrometheusConfig>
+  const merged = { ...defaultConfig, ...base }
+  const rawGlobal = base.global
+  const global: GlobalConfig =
+    rawGlobal && typeof rawGlobal === 'object' && !Array.isArray(rawGlobal)
+      ? (rawGlobal as GlobalConfig)
+      : merged.global ?? defaultConfig.global!
   return {
-    ...defaultConfig,
-    ...base,
-    global:
-      base.global && typeof base.global === 'object' && !Array.isArray(base.global)
-        ? (base.global as GlobalConfig)
-        : {},
+    ...merged,
+    global,
     scrape_configs: Array.isArray(base.scrape_configs) ? base.scrape_configs : [],
+  }
+}
+
+function normalizeStaticConfig(raw: unknown): StaticConfig {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { targets: [] }
+  }
+  const o = raw as Record<string, unknown>
+  const targets = Array.isArray(o.targets) ? o.targets.map((t) => String(t)) : []
+  let labels: Record<string, string> | undefined
+  if (o.labels && typeof o.labels === 'object' && !Array.isArray(o.labels)) {
+    labels = {}
+    for (const [k, v] of Object.entries(o.labels as Record<string, unknown>)) {
+      labels[k] = v == null ? '' : String(v)
+    }
+  }
+  return { targets, labels }
+}
+
+/** Ensures scrape jobs never crash the UI (missing job_name / static_configs / targets). */
+function normalizeScrapeJobFromYaml(raw: unknown, id: string): ScrapeConfig {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {
+      id,
+      job_name: '',
+      static_configs: [],
+    }
+  }
+  const base = raw as Record<string, unknown>
+  const job_name = typeof base.job_name === 'string' ? base.job_name : ''
+  const static_configs = Array.isArray(base.static_configs)
+    ? base.static_configs.map(normalizeStaticConfig)
+    : []
+  const { job_name: _j, static_configs: _s, ...rest } = base
+  return {
+    ...(rest as Omit<ScrapeConfig, 'id' | 'job_name' | 'static_configs'>),
+    id,
+    job_name,
+    static_configs,
   }
 }
 
@@ -208,10 +251,9 @@ function mergeMetaGroups(config: PrometheusConfig, jobs: ScrapeConfig[]): Promet
 }
 
 const fromConfig = (config: PrometheusConfig, rawYaml?: string): ScrapeConfig[] => {
-  const arr = (config.scrape_configs || []).map((sc) => ({
-    ...sc,
-    id: generateId(),
-  })) as ScrapeConfig[]
+  const arr = (config.scrape_configs || []).map((sc) =>
+    normalizeScrapeJobFromYaml(sc, generateId())
+  )
   if (rawYaml) {
     const groups = extractJobGroupsFromRaw(rawYaml)
     arr.forEach((j, i) => {
@@ -357,13 +399,15 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         return { success: true }
       },
 
-      ensureInitialHistorySnapshot: async (filename, yaml) => {
+      ensureInitialHistorySnapshot: async (filename) => {
         try {
+          if (get().activeFileId !== filename) return
           const existingRes = await fetch(`/api/config/history?file=${encodeURIComponent(filename)}`)
           const existing = await parseApiResponse<{ versions?: ConfigHistoryEntry[] }>(existingRes)
           if (existing.success && Array.isArray(existing.data?.versions) && existing.data.versions.length > 0) {
             return
           }
+          const yaml = get().exportYaml()
           await fetch('/api/config/history', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -437,9 +481,9 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         const yaml = YAML.stringify(defaultConfig, { indent: 2 })
         const saved = await get().saveYamlToDisk(t, yaml)
         if (!saved.success) return { success: false, error: saved.error }
-        await get().ensureInitialHistorySnapshot(t, yaml)
         await get().refreshFiles()
         await get().setActiveFile(t)
+        await get().ensureInitialHistorySnapshot(t)
         return { success: true }
       },
 
@@ -459,9 +503,9 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         }
         const saved = await get().saveYamlToDisk(t, yaml)
         if (!saved.success) return { success: false, error: saved.error }
-        await get().ensureInitialHistorySnapshot(t, yaml)
         await get().refreshFiles()
         await get().setActiveFile(t)
+        await get().ensureInitialHistorySnapshot(t)
         return { success: true }
       },
 
@@ -535,11 +579,12 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             activeFileId: id,
             config,
             scrapeConfigs,
-            originalYaml: content,
             undoStack: [],
             redoStack: [],
             yamlTouchCounter: get().yamlTouchCounter + 1,
           })
+          // Baseline must match canonical `exportYaml()` or the editor/UI looks "dirty" with no edits.
+          set({ originalYaml: get().exportYaml() })
           await get().loadHistoryForFile(id)
           get().validateConfig()
         } finally {
@@ -757,7 +802,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           const newJob: ScrapeConfig = {
             ...job,
             id: generateId(),
-            job_name: `${job.job_name}-copy`,
+            job_name: `${job.job_name || 'job'}-copy`,
           }
           const snapshot = { config: clone(get().config), scrapeConfigs: clone(scrapeConfigs) }
           set((state) => ({
@@ -779,22 +824,22 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           const sortedJobs = [...state.scrapeConfigs]
           switch (sort) {
             case 'name_asc':
-              sortedJobs.sort((a, b) => a.job_name.localeCompare(b.job_name))
+              sortedJobs.sort((a, b) => (a.job_name || '').localeCompare(b.job_name || ''))
               break
             case 'name_desc':
-              sortedJobs.sort((a, b) => b.job_name.localeCompare(a.job_name))
+              sortedJobs.sort((a, b) => (b.job_name || '').localeCompare(a.job_name || ''))
               break
             case 'ip_asc':
               sortedJobs.sort((a, b) => {
-                const aTarget = a.static_configs[0]?.targets[0] || ''
-                const bTarget = b.static_configs[0]?.targets[0] || ''
+                const aTarget = a.static_configs?.[0]?.targets?.[0] || ''
+                const bTarget = b.static_configs?.[0]?.targets?.[0] || ''
                 return compareIps(extractIp(aTarget), extractIp(bTarget))
               })
               break
             case 'ip_desc':
               sortedJobs.sort((a, b) => {
-                const aTarget = a.static_configs[0]?.targets[0] || ''
-                const bTarget = b.static_configs[0]?.targets[0] || ''
+                const aTarget = a.static_configs?.[0]?.targets?.[0] || ''
+                const bTarget = b.static_configs?.[0]?.targets?.[0] || ''
                 return compareIps(extractIp(bTarget), extractIp(aTarget))
               })
               break
@@ -852,9 +897,9 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         set((state) => ({
           scrapeConfigs: state.scrapeConfigs.map((job) => ({
             ...job,
-            static_configs: job.static_configs.map((config) => ({
+            static_configs: (job.static_configs || []).map((config) => ({
               ...config,
-              targets: [...config.targets].sort((a, b) =>
+              targets: [...(config.targets || [])].sort((a, b) =>
                 compareIps(extractIp(a), extractIp(b))
               ),
             })),
@@ -869,13 +914,13 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         set((state) => ({
           scrapeConfigs: state.scrapeConfigs.map((job) => ({
             ...job,
-            job_name: job.job_name.trim().toLowerCase().replace(/\s+/g, '-'),
+            job_name: (job.job_name || '').trim().toLowerCase().replace(/\s+/g, '-'),
             scrape_interval: job.scrape_interval?.trim() || undefined,
             scrape_timeout: job.scrape_timeout?.trim() || undefined,
             metrics_path: job.metrics_path?.trim() || undefined,
-            static_configs: job.static_configs.map((config) => ({
+            static_configs: (job.static_configs || []).map((config) => ({
               ...config,
-              targets: config.targets.map((t) => t.trim()),
+              targets: (config.targets || []).map((t) => t.trim()),
             })),
           })),
           undoStack: [...state.undoStack, snapshot],
@@ -1020,8 +1065,9 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         // Check for duplicate job names
         const jobNames = new Map<string, number>()
         scrapeConfigs.forEach((job) => {
-          const count = jobNames.get(job.job_name) || 0
-          jobNames.set(job.job_name, count + 1)
+          const key = job.job_name || ''
+          const count = jobNames.get(key) || 0
+          jobNames.set(key, count + 1)
         })
         jobNames.forEach((count, name) => {
           if (!name || count <= 1) return
@@ -1041,7 +1087,8 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
               section: 'scrape_configs',
             })
           }
-          const totalTargets = job.static_configs.reduce((n, sc) => n + sc.targets.length, 0)
+          const statics = job.static_configs || []
+          const totalTargets = statics.reduce((n, sc) => n + (sc.targets?.length || 0), 0)
           if (totalTargets === 0) {
             errors.push({
               type: 'empty_targets',
@@ -1055,13 +1102,13 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         // Check for duplicate targets across all jobs
         const allTargets = new Map<string, string[]>()
         scrapeConfigs.forEach((job) => {
-          job.static_configs.forEach((staticConfig) => {
-            staticConfig.targets.forEach((target) => {
+          for (const staticConfig of job.static_configs || []) {
+            for (const target of staticConfig.targets || []) {
               const existing = allTargets.get(target) || []
-              existing.push(job.job_name)
+              existing.push(job.job_name || '')
               allTargets.set(target, existing)
-            })
-          })
+            }
+          }
         })
         allTargets.forEach((jobs, target) => {
           if (jobs.length > 1) {
@@ -1077,10 +1124,10 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         // Validate target format
         const targetRegex = /^[\w.-]+:\d+$/
         scrapeConfigs.forEach((job) => {
-          job.static_configs.forEach((staticConfig) => {
-            staticConfig.targets.forEach((target) => {
+          for (const staticConfig of job.static_configs || []) {
+            for (const target of staticConfig.targets || []) {
               const t = target?.trim() || ''
-              if (!t) return
+              if (!t) continue
               if (!targetRegex.test(t)) {
                 errors.push({
                   type: 'invalid_target',
@@ -1089,7 +1136,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
                   jobName: job.job_name,
                   section: 'scrape_configs',
                 })
-                return
+                continue
               }
               const port = Number(t.split(':').at(-1) || '')
               if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -1101,8 +1148,8 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
                   section: 'scrape_configs',
                 })
               }
-            })
-          })
+            }
+          }
         })
 
         // Validate remote_write URLs
@@ -1138,7 +1185,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         const groups = new Map<string, ScrapeConfig[]>()
 
         scrapeConfigs.forEach((job) => {
-          const match = job.job_name.match(/^([a-zA-Z0-9]+)-/)
+          const match = (job.job_name || '').match(/^([a-zA-Z0-9]+)-/)
           const prefix = match ? match[1] : 'other'
           const existing = groups.get(prefix) || []
           existing.push(job)
@@ -1156,12 +1203,12 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         
         scrapeConfigs.forEach((job) => {
           let jobTargets = 0
-          job.static_configs.forEach((sc) => {
-            jobTargets += sc.targets.length
-          })
+          for (const sc of job.static_configs || []) {
+            jobTargets += sc.targets?.length || 0
+          }
           totalTargets += jobTargets
           if (jobTargets >= 50) {
-            largeJobs.push(job.job_name)
+            largeJobs.push(job.job_name || '')
           }
         })
 
