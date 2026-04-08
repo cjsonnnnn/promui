@@ -18,7 +18,7 @@ import { RemoteReadEditor } from '@/components/prometheus/editors/remote-read-ed
 import { StorageEditor } from '@/components/prometheus/editors/storage-editor'
 import { TracingEditor } from '@/components/prometheus/editors/tracing-editor'
 import { Button } from '@/components/ui/button'
-import { PanelLeft, PanelRight, FileText, ChevronRight, ChevronLeft } from 'lucide-react'
+import { PanelLeft, PanelRight, FileText, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   ResizableHandle,
@@ -233,7 +233,7 @@ export default function PrometheusConfigEditor() {
                 onClick={() => setYamlPanelCollapsed(false)}
                 title="Expand YAML Panel"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <PanelRight className="h-4 w-4" />
               </Button>
               <div className="mt-2 flex-1 flex items-center justify-center">
                 <span className="text-xs text-muted-foreground [writing-mode:vertical-lr]">

@@ -81,6 +81,8 @@ export function ScrapeConfigsEditor() {
     toggleSortBy,
     targetsSort,
     toggleTargetsSort,
+    groupKeyOrder,
+    setGroupKeyOrder,
     collapsedJobs,
     toggleCollapse,
     collapseAll,
@@ -109,7 +111,6 @@ export function ScrapeConfigsEditor() {
   const [scrapeGroupFilter, setScrapeGroupFilter] = useState<string>('all')
   const [groupManageOpen, setGroupManageOpen] = useState(false)
   const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({})
-  const [groupKeyOrder, setGroupKeyOrder] = useState<'stable' | 'asc' | 'desc'>('stable')
   const [collapsedBundleSections, setCollapsedBundleSections] = useState<Set<string>>(
     () => new Set()
   )

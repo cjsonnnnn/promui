@@ -15,7 +15,15 @@ import {
   Upload,
   Pencil,
   PanelLeftClose,
+  Copy,
+  MoreVertical,
 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Dialog,
   DialogContent,
@@ -83,6 +91,7 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
     createNewFile,
     uploadYamlFile,
     renameFile,
+    duplicateFile,
     saveYamlToDisk,
     ensureInitialHistorySnapshot,
     flushEditorYamlToStore,
@@ -95,6 +104,8 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
   const [newFilename, setNewFilename] = useState("")
   const [renameTarget, setRenameTarget] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
+  const [duplicateTarget, setDuplicateTarget] = useState<string | null>(null)
+  const [duplicateValue, setDuplicateValue] = useState("")
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState("")
   const [conflict, setConflict] = useState<ConflictState>(null)
@@ -199,6 +210,18 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
     setErrorMessage("")
     setRenameTarget(null)
     setRenameValue("")
+  }
+
+  const handleDuplicate = async () => {
+    if (!duplicateTarget) return
+    const result = await duplicateFile(duplicateTarget, duplicateValue.trim())
+    if (!result.success) {
+      setErrorMessage(result.error || "Failed to duplicate file")
+      return
+    }
+    setErrorMessage("")
+    setDuplicateTarget(null)
+    setDuplicateValue("")
   }
 
   const handleConflictRename = async () => {
@@ -316,33 +339,64 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
                       <span>{formatBytes(file.size)}</span>
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      void runWithUnsavedCheck(async () => {
-                        setRenameTarget(file.id)
-                        setRenameValue(file.filename)
-                      })
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      void runWithUnsavedCheck(async () => {
-                        setDeleteConfirm(file.id)
-                      })
-                    }}
-                  >
-                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreVertical className="h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void runWithUnsavedCheck(async () => {
+                            setDuplicateTarget(file.id)
+                            // Suggest a copy name
+                            const base = file.filename.replace(/\.ya?ml$/i, '')
+                            let suggestion = `${base}-copy.yaml`
+                            let counter = 1
+                            while (usePrometheusStore.getState().files.some((f) => f.filename === suggestion)) {
+                              suggestion = `${base}-copy-${counter}.yaml`
+                              counter++
+                            }
+                            setDuplicateValue(suggestion)
+                          })
+                        }}
+                      >
+                        <Copy className="mr-2 h-4 w-4" />
+                        Duplicate
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void runWithUnsavedCheck(async () => {
+                            setRenameTarget(file.id)
+                            setRenameValue(file.filename)
+                          })
+                        }}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void runWithUnsavedCheck(async () => {
+                            setDeleteConfirm(file.id)
+                          })
+                        }}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               ))}
             </div>
@@ -470,6 +524,30 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
               Cancel
             </Button>
             <Button onClick={() => void handleRename()}>Rename</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!duplicateTarget} onOpenChange={() => setDuplicateTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Duplicate File</DialogTitle>
+            <DialogDescription>
+              Create a copy of this file with a new name. Version history will not be copied.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Input 
+              value={duplicateValue} 
+              onChange={(e) => setDuplicateValue(e.target.value)} 
+              placeholder="new-filename.yaml"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDuplicateTarget(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleDuplicate()}>Duplicate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

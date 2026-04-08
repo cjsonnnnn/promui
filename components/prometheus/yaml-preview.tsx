@@ -1,7 +1,7 @@
 "use client"
 
 import dynamic from "next/dynamic"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type * as monaco from "monaco-editor"
 import { usePrometheusStore } from "@/lib/prometheus-store"
 import { Button } from "@/components/ui/button"
@@ -35,7 +35,6 @@ interface YamlPreviewProps {
 
 export function YamlPreview({ onCollapse }: YamlPreviewProps) {
   const {
-    exportYaml,
     validateConfig,
     validationErrors,
     activeFileId,
@@ -46,6 +45,9 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     isLoadingFile,
     setFlushEditorYamlToStore,
   } = usePrometheusStore()
+  
+  // Get exportYaml from store directly to avoid dependency issues
+  const exportYaml = useCallback(() => usePrometheusStore.getState().exportYaml(), [])
 
   const resolvedFile =
     activeFileId && files.some((f) => f.id === activeFileId)
@@ -100,15 +102,25 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     validateConfig()
   }, [hasResolvedFile, scrapeConfigs, config, validateConfig])
 
+  // Stable ref for tracking if this is initial mount or data change
+  const contentHash = useMemo(() => {
+    // Create a simple hash from config and scrapeConfigs to detect actual data changes
+    const configStr = JSON.stringify(config)
+    const jobsStr = JSON.stringify(scrapeConfigs.map(j => j.id))
+    return `${configStr.length}-${jobsStr.length}`
+  }, [config, scrapeConfigs])
+  
   useEffect(() => {
     if (!hasResolvedFile || !editorRef.current || editorFocusedRef.current) return
-    const next = exportYaml()
+    const next = usePrometheusStore.getState().exportYaml()
     const cur = editorRef.current.getValue()
     if (cur !== next) {
       editorRef.current.setValue(next)
       setLineCount(next.split("\n").length)
     }
-  }, [hasResolvedFile, config, scrapeConfigs, exportYaml])
+    // Only depend on content hash, not individual objects or functions
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasResolvedFile, contentHash])
 
   const copyYamlToClipboard = async (text: string) => {
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {

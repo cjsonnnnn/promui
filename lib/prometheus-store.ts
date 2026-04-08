@@ -46,6 +46,7 @@ interface PrometheusStore {
   searchQuery: string
   sortBy: ScrapeSortMode
   targetsSort: TargetsSortMode
+  groupKeyOrder: 'stable' | 'asc' | 'desc'
   collapsedJobs: Set<string>
   selectedJobs: Set<string>
   collapsedSections: Set<string>
@@ -93,6 +94,7 @@ interface PrometheusStore {
   fileExists: (filename: string) => Promise<boolean>
   refreshConfigInfo: () => Promise<void>
   renameFile: (id: string, nextName: string) => Promise<{ success: boolean; error?: string }>
+  duplicateFile: (id: string, newName: string) => Promise<{ success: boolean; error?: string }>
   setActiveFile: (id: string) => Promise<void>
   deleteFile: (id: string) => Promise<{ success: boolean; error?: string }>
   saveActiveFile: () => Promise<{ success: boolean; error?: string }>
@@ -129,6 +131,7 @@ interface PrometheusStore {
   toggleSortBy: () => void
   setTargetsSort: (sort: TargetsSortMode) => void
   toggleTargetsSort: () => void
+  setGroupKeyOrder: (order: 'stable' | 'asc' | 'desc') => void
   toggleCollapse: (id: string) => void
   toggleSectionCollapse: (section: string) => void
   collapseAll: () => void
@@ -254,6 +257,7 @@ function editorResetPatch() {
     redoStack: [] as HistorySnapshot[],
     yamlTouchCounter: 0,
     resumeAfterSave: null as (() => void) | null,
+    selectedJobs: new Set<string>(),
   }
 }
 
@@ -319,6 +323,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       searchQuery: '',
       sortBy: null,
       targetsSort: null,
+      groupKeyOrder: 'stable' as 'stable' | 'asc' | 'desc',
       collapsedJobs: new Set<string>(),
       selectedJobs: new Set<string>(),
       collapsedSections: new Set<string>(),
@@ -596,6 +601,33 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         return { success: true }
       },
 
+      duplicateFile: async (id, newName) => {
+        const file = get().files.find((f) => f.id === id)
+        if (!file) return { success: false, error: 'File not found' }
+        const t = newName.trim()
+        if (!t) return { success: false, error: 'Filename is required' }
+        if (!/\.(yml|yaml)$/i.test(t)) {
+          return { success: false, error: 'Filename must end with .yml or .yaml' }
+        }
+        if (await get().fileExists(t)) {
+          return { success: false, error: 'File already exists' }
+        }
+        // Load current file content
+        const response = await fetch(`/api/config/load?file=${encodeURIComponent(file.filename)}`)
+        const j = await parseApiResponse<{ content?: string }>(response)
+        if (!j.success || typeof j.data?.content !== 'string') {
+          return { success: false, error: j.error || 'Failed to load source file' }
+        }
+        // Save as new file (without history)
+        const saved = await get().saveYamlToDisk(t, j.data.content)
+        if (!saved.success) return { success: false, error: saved.error }
+        await get().refreshFiles()
+        await get().setActiveFile(t)
+        // Initialize new history timeline (do not copy history)
+        await get().ensureInitialHistorySnapshot(t)
+        return { success: true }
+      },
+
       setActiveFile: async (id) => {
         const list = get().files
         if (!id || !list.some((f) => f.id === id)) {
@@ -608,8 +640,15 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           const j = await parseApiResponse<{ content?: string }>(response)
           if (!j.success || typeof j.data?.content !== 'string') {
             set({
-              ...editorResetPatch(),
-              files: get().files,
+              activeFileId: id,
+              config: clone(defaultConfig),
+              scrapeConfigs: [],
+              originalYaml: '',
+              historyVersions: [],
+              undoStack: [],
+              redoStack: [],
+              yamlTouchCounter: get().yamlTouchCounter + 1,
+              selectedJobs: new Set<string>(),
               validationErrors: [
                 {
                   type: 'invalid_yaml',
@@ -617,6 +656,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
                 },
               ],
             })
+            await get().loadHistoryForFile(id)
             return
           }
           const content = j.data.content
@@ -633,6 +673,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
               undoStack: [],
               redoStack: [],
               yamlTouchCounter: get().yamlTouchCounter + 1,
+              selectedJobs: new Set<string>(),
               validationErrors: [
                 {
                   type: 'invalid_yaml',
@@ -654,6 +695,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             undoStack: [],
             redoStack: [],
             yamlTouchCounter: get().yamlTouchCounter + 1,
+            selectedJobs: new Set<string>(),
           })
           // Baseline must match canonical `exportYaml()` or the editor/UI looks "dirty" with no edits.
           set({ originalYaml: get().exportYaml() })
@@ -953,6 +995,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             config: mergeMetaGroups(state.config, nextScrape),
             undoStack: [...state.undoStack, snapshot],
             redoStack: [],
+            selectedJobs: new Set<string>(),
           }
         })
       },
@@ -1023,6 +1066,10 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         }
         set({ targetsSort: next })
         get().sortTargetsInJobs(next)
+      },
+
+      setGroupKeyOrder: (order) => {
+        set({ groupKeyOrder: order })
       },
 
       toggleCollapse: (id) => {
@@ -1236,7 +1283,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         if (!entry) return
         const result = get().hydrateFromYaml(entry.yaml)
         if (result.success) {
-          set({ undoStack: [], redoStack: [] })
+          set({ undoStack: [], redoStack: [], selectedJobs: new Set<string>() })
           get().validateConfig()
           set({ originalYaml: get().exportYaml() })
           set((s) => ({ yamlTouchCounter: s.yamlTouchCounter + 1 }))
