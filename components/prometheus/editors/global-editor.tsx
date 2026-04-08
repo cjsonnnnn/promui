@@ -6,10 +6,16 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus, Trash2, Globe } from 'lucide-react'
 import { useState } from 'react'
+import { cn } from '@/lib/utils'
 
 export function GlobalEditor() {
-  const { config, updateGlobal } = usePrometheusStore()
+  const { config, updateGlobal, activeFileId, files } = usePrometheusStore()
   const global = config.global || {}
+  
+  const hasResolvedFile = Boolean(
+    activeFileId && files.some((f) => f.id === activeFileId)
+  )
+  const isDisabled = !hasResolvedFile
 
   const [newLabelKey, setNewLabelKey] = useState('')
   const [newLabelValue, setNewLabelValue] = useState('')
@@ -45,7 +51,7 @@ export function GlobalEditor() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className={cn("space-y-6 p-6", isDisabled && "pointer-events-none opacity-50")}>
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent">
           <Globe className="h-5 w-5" />
@@ -72,7 +78,8 @@ export function GlobalEditor() {
               <Input
                 value={global.scrape_interval || ''}
                 onChange={(e) => handleChange('scrape_interval', e.target.value)}
-                placeholder="15s"
+                placeholder={isDisabled ? "Select a file first..." : "15s"}
+                disabled={isDisabled}
               />
               <p className="text-xs text-muted-foreground">
                 How often to scrape targets (e.g., 15s, 1m)
@@ -84,7 +91,8 @@ export function GlobalEditor() {
               <Input
                 value={global.scrape_timeout || ''}
                 onChange={(e) => handleChange('scrape_timeout', e.target.value)}
-                placeholder="10s"
+                placeholder={isDisabled ? "Select a file first..." : "10s"}
+                disabled={isDisabled}
               />
               <p className="text-xs text-muted-foreground">
                 Timeout for each scrape request
@@ -96,7 +104,8 @@ export function GlobalEditor() {
               <Input
                 value={global.evaluation_interval || ''}
                 onChange={(e) => handleChange('evaluation_interval', e.target.value)}
-                placeholder="15s"
+                placeholder={isDisabled ? "Select a file first..." : "15s"}
+                disabled={isDisabled}
               />
               <p className="text-xs text-muted-foreground">
                 How often to evaluate recording and alerting rules
@@ -118,7 +127,8 @@ export function GlobalEditor() {
               <Input
                 value={global.query_log_file || ''}
                 onChange={(e) => handleChange('query_log_file', e.target.value)}
-                placeholder="/var/log/prometheus/query.log"
+                placeholder={isDisabled ? "Select a file first..." : "/var/log/prometheus/query.log"}
+                disabled={isDisabled}
               />
               <p className="text-xs text-muted-foreground">
                 Path to write PromQL query logs
@@ -145,6 +155,7 @@ export function GlobalEditor() {
                   variant="ghost"
                   size="icon"
                   onClick={() => handleRemoveExternalLabel(key)}
+                  disabled={isDisabled}
                 >
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
@@ -155,20 +166,22 @@ export function GlobalEditor() {
             <Input
               value={newLabelKey}
               onChange={(e) => setNewLabelKey(e.target.value)}
-              placeholder="Label name"
+              placeholder={isDisabled ? "..." : "Label name"}
               className="flex-1"
+              disabled={isDisabled}
             />
             <Input
               value={newLabelValue}
               onChange={(e) => setNewLabelValue(e.target.value)}
-              placeholder="Label value"
+              placeholder={isDisabled ? "..." : "Label value"}
               className="flex-1"
+              disabled={isDisabled}
             />
             <Button
               variant="outline"
               size="icon"
               onClick={handleAddExternalLabel}
-              disabled={!newLabelKey || !newLabelValue}
+              disabled={isDisabled || !newLabelKey || !newLabelValue}
             >
               <Plus className="h-4 w-4" />
             </Button>

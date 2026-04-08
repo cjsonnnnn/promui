@@ -1034,6 +1034,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           }
           return {
             scrapeConfigs: sortedJobs,
+            config: mergeMetaGroups(state.config, sortedJobs),
             sortBy: sort,
             undoStack: [...state.undoStack, snapshot],
             redoStack: [],
@@ -1151,8 +1152,8 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       sortTargetsInJobs: (direction = 'asc') => {
         const dir = direction === 'desc' ? -1 : 1
         const snapshot = { config: clone(get().config), scrapeConfigs: clone(get().scrapeConfigs) }
-        set((state) => ({
-          scrapeConfigs: state.scrapeConfigs.map((job) => ({
+        set((state) => {
+          const nextScrape = state.scrapeConfigs.map((job) => ({
             ...job,
             static_configs: (job.static_configs || []).map((config) => ({
               ...config,
@@ -1161,16 +1162,20 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
                 return c * dir
               }),
             })),
-          })),
-          undoStack: [...state.undoStack, snapshot],
-          redoStack: [],
-        }))
+          }))
+          return {
+            scrapeConfigs: nextScrape,
+            config: mergeMetaGroups(state.config, nextScrape),
+            undoStack: [...state.undoStack, snapshot],
+            redoStack: [],
+          }
+        })
       },
 
       normalizeFormatting: () => {
         const snapshot = { config: clone(get().config), scrapeConfigs: clone(get().scrapeConfigs) }
-        set((state) => ({
-          scrapeConfigs: state.scrapeConfigs.map((job) => ({
+        set((state) => {
+          const nextScrape = state.scrapeConfigs.map((job) => ({
             ...job,
             job_name: (job.job_name || '').trim().toLowerCase().replace(/\s+/g, '-'),
             scrape_interval: job.scrape_interval?.trim() || undefined,
@@ -1180,10 +1185,14 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
               ...config,
               targets: (config.targets || []).map((t) => t.trim()),
             })),
-          })),
-          undoStack: [...state.undoStack, snapshot],
-          redoStack: [],
-        }))
+          }))
+          return {
+            scrapeConfigs: nextScrape,
+            config: mergeMetaGroups(state.config, nextScrape),
+            undoStack: [...state.undoStack, snapshot],
+            redoStack: [],
+          }
+        })
       },
 
       importYaml: (yamlString, filename = 'prometheus.yml') => {

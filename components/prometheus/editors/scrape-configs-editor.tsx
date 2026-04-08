@@ -101,7 +101,14 @@ export function ScrapeConfigsEditor() {
     batchDeleteScrapeConfigs,
     batchMoveToGroup,
     batchUngroup,
+    activeFileId,
+    files,
   } = usePrometheusStore()
+  
+  const hasResolvedFile = Boolean(
+    activeFileId && files.some((f) => f.id === activeFileId)
+  )
+  const isDisabled = !hasResolvedFile
 
   const [editingJob, setEditingJob] = useState<ScrapeConfig | null>(null)
   const [isAddingJob, setIsAddingJob] = useState(false)
@@ -295,9 +302,11 @@ export function ScrapeConfigsEditor() {
             <TooltipTrigger asChild>
               <span>
                 <Button
-                  variant={showGroupView ? 'secondary' : 'ghost'}
+                  variant="outline"
                   size="sm"
+                  className={cn(showGroupView && "bg-accent")}
                   onClick={() => setShowGroupView(!showGroupView)}
+                  disabled={isDisabled}
                 >
                   <FolderTree className="mr-2 h-4 w-4" />
                   Prefix View
@@ -309,7 +318,12 @@ export function ScrapeConfigsEditor() {
           <Tooltip>
             <TooltipTrigger asChild>
               <span>
-                <Button variant="default" size="sm" onClick={() => setIsAddingJob(true)}>
+                <Button 
+                  variant="default" 
+                  size="sm" 
+                  onClick={() => setIsAddingJob(true)}
+                  disabled={isDisabled}
+                >
                   <Plus className="mr-2 h-4 w-4" />
                   Add Job
                 </Button>
@@ -327,15 +341,16 @@ export function ScrapeConfigsEditor() {
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search jobs or targets..."
+            placeholder={isDisabled ? "Select a file first..." : "Search jobs or targets..."}
             className="pl-9"
+            disabled={isDisabled}
           />
         </div>
 
         {/* Actions Dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" disabled={isDisabled}>
               <Layers className="mr-2 h-4 w-4" />
               Actions
             </Button>
@@ -343,11 +358,11 @@ export function ScrapeConfigsEditor() {
           <DropdownMenuContent align="end">
             {/* Sort Menu - All sorting options in one place */}
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger disabled={isDisabled}>
                 <ArrowUpDown className="mr-2 h-4 w-4" />
                 Sort
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
+              <DropdownMenuSubContent className="z-50" sideOffset={2} alignOffset={-5}>
                 <DropdownMenuItem onClick={() => toggleSortBy()}>
                   {sortBy === 'name_asc' ? (
                     <><ArrowUp className="mr-2 h-4 w-4" /> Job Name (A–Z)</>
@@ -383,14 +398,14 @@ export function ScrapeConfigsEditor() {
             <DropdownMenuSeparator />
 
             {/* Collapse/Expand Toggle */}
-            <DropdownMenuItem onClick={() => allJobsCollapsed ? expandAll() : collapseAll()}>
+            <DropdownMenuItem onClick={() => allJobsCollapsed ? expandAll() : collapseAll()} disabled={isDisabled}>
               {allJobsCollapsed ? (
                 <><ChevronDown className="mr-2 h-4 w-4" /> Expand All Jobs</>
               ) : (
                 <><ChevronUp className="mr-2 h-4 w-4" /> Collapse All Jobs</>
               )}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={toggleAllBundles}>
+            <DropdownMenuItem onClick={toggleAllBundles} disabled={isDisabled}>
               {allBundlesCollapsed ? (
                 <><ChevronDown className="mr-2 h-4 w-4" /> Expand All Groups</>
               ) : (
@@ -400,7 +415,7 @@ export function ScrapeConfigsEditor() {
 
             <DropdownMenuSeparator />
 
-            <DropdownMenuItem onClick={normalizeFormatting}>
+            <DropdownMenuItem onClick={normalizeFormatting} disabled={isDisabled}>
               <AlignJustify className="mr-2 h-4 w-4" />
               Normalize Formatting
             </DropdownMenuItem>
@@ -408,13 +423,17 @@ export function ScrapeConfigsEditor() {
         </DropdownMenu>
 
         {/* Groups Management */}
-        <Button variant="outline" size="sm" onClick={() => setGroupManageOpen(true)}>
+        <Button variant="outline" size="sm" onClick={() => setGroupManageOpen(true)} disabled={isDisabled}>
           <Layers className="mr-2 h-4 w-4" />
           Groups
         </Button>
 
         {/* Filter */}
-        <Select value={scrapeGroupFilter} onValueChange={setScrapeGroupFilter}>
+        <Select 
+          value={scrapeGroupFilter} 
+          onValueChange={setScrapeGroupFilter}
+          disabled={isDisabled}
+        >
           <SelectTrigger className="h-9 w-[140px] text-xs">
             <SelectValue placeholder="Filter" />
           </SelectTrigger>
@@ -481,7 +500,7 @@ export function ScrapeConfigsEditor() {
       )}
 
       {/* Content */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className={cn("flex-1", isDisabled && "pointer-events-none opacity-50")}>
         {showGroupView && groupedJobs ? (
           <div className="p-4 space-y-4">
             {prefixEntries.map(([prefix, jobs]) => {

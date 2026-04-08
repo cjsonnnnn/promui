@@ -63,6 +63,14 @@ export function VersionHistory() {
   const [beforeRestoreYaml, setBeforeRestoreYaml] = useState("")
   const [afterRestoreYaml, setAfterRestoreYaml] = useState("")
 
+  // Load history when active file changes (so badge shows immediately)
+  useEffect(() => {
+    if (hasResolvedFile && activeFileId) {
+      void loadHistoryForFile(activeFileId)
+    }
+  }, [hasResolvedFile, activeFileId, loadHistoryForFile])
+
+  // Refresh history when dialog opens
   useEffect(() => {
     if (isOpen && hasResolvedFile && activeFileId) {
       void loadHistoryForFile(activeFileId)
