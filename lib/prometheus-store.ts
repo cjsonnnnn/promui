@@ -482,6 +482,8 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           const existingRes = await fetch(`/api/config/history?file=${encodeURIComponent(filename)}`)
           const existing = await parseApiResponse<{ versions?: ConfigHistoryEntry[] }>(existingRes)
           if (existing.success && Array.isArray(existing.data?.versions) && existing.data.versions.length > 0) {
+            // Still update store with existing versions so badge shows immediately
+            set({ historyVersions: existing.data.versions })
             return
           }
           const yaml = get().exportYaml()
@@ -490,6 +492,8 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ file: filename, yaml }),
           })
+          // Reload history so badge shows the new snapshot immediately
+          await get().loadHistoryForFile(filename)
         } catch {
           /* best effort only; editor can still load */
         }

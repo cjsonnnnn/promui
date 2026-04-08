@@ -94,14 +94,6 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     setLineCount(initial.split("\n").length)
   }
 
-  useEffect(() => {
-    if (!hasResolvedFile) {
-      usePrometheusStore.setState({ validationErrors: [] })
-      return
-    }
-    validateConfig()
-  }, [hasResolvedFile, scrapeConfigs, config, validateConfig])
-
   // Stable ref for tracking if this is initial mount or data change
   const contentHash = useMemo(() => {
     // Create a simple hash from config and scrapeConfigs to detect actual data changes
@@ -109,6 +101,17 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     const jobsStr = JSON.stringify(scrapeConfigs.map(j => j.id))
     return `${configStr.length}-${jobsStr.length}`
   }, [config, scrapeConfigs])
+
+  useEffect(() => {
+    if (!hasResolvedFile) {
+      usePrometheusStore.setState({ validationErrors: [] })
+      return
+    }
+    // Use getState to access validateConfig without dependency issues
+    usePrometheusStore.getState().validateConfig()
+    // Only run when file or data changes, not when validateConfig reference changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasResolvedFile, contentHash])
   
   useEffect(() => {
     if (!hasResolvedFile || !editorRef.current || editorFocusedRef.current) return

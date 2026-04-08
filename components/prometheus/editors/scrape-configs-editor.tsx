@@ -362,7 +362,13 @@ export function ScrapeConfigsEditor() {
                 <ArrowUpDown className="mr-2 h-4 w-4" />
                 Sort
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="z-50" sideOffset={2} alignOffset={-5}>
+              <DropdownMenuSubContent 
+                className="z-50 min-w-[200px]" 
+                sideOffset={4} 
+                alignOffset={-5}
+                avoidCollisions={true}
+                collisionPadding={8}
+              >
                 <DropdownMenuItem onClick={() => toggleSortBy()}>
                   {sortBy === 'name_asc' ? (
                     <><ArrowUp className="mr-2 h-4 w-4" /> Job Name (A–Z)</>
