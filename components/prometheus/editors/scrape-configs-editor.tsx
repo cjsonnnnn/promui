@@ -293,15 +293,21 @@ export function ScrapeConfigsEditor() {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <div className={cn(
+        "flex items-center justify-between border-b border-border px-4 py-3",
+        isDisabled && "opacity-50"
+      )}>
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent">
+          <div className={cn(
+            "flex h-9 w-9 items-center justify-center rounded-lg",
+            isDisabled ? "bg-muted" : "bg-accent"
+          )}>
             <Server className="h-4 w-4" />
           </div>
           <div>
             <h2 className="font-semibold">Scrape Configurations</h2>
             <p className="text-xs text-muted-foreground">
-              {scrapeConfigs.length} jobs · {scrapeConfigs.reduce((sum, job) => sum + getTargetCount(job), 0)} targets
+              {isDisabled ? 'Select a file to view jobs' : `${scrapeConfigs.length} jobs · ${scrapeConfigs.reduce((sum, job) => sum + getTargetCount(job), 0)} targets`}
             </p>
           </div>
         </div>
@@ -367,7 +373,7 @@ export function ScrapeConfigsEditor() {
           <DropdownMenuContent align="end">
             {/* Sort Menu - All sorting options in one place */}
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger disabled={isDisabled}>
+              <DropdownMenuSubTrigger>
                 <ArrowUpDown className="mr-2 h-4 w-4" />
                 Sort
               </DropdownMenuSubTrigger>
@@ -378,7 +384,7 @@ export function ScrapeConfigsEditor() {
                 avoidCollisions={true}
                 collisionPadding={8}
               >
-                <DropdownMenuItem onClick={() => toggleSortBy()}>
+                <DropdownMenuItem onClick={() => toggleSortBy()} disabled={isDisabled}>
                   {sortBy === 'name_asc' ? (
                     <><ArrowUp className="mr-2 h-4 w-4" /> Job Name (A–Z)</>
                   ) : sortBy === 'name_desc' ? (
@@ -387,7 +393,7 @@ export function ScrapeConfigsEditor() {
                     <><ArrowUpDown className="mr-2 h-4 w-4" /> Job Name</>
                   )}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => toggleTargetsSort()}>
+                <DropdownMenuItem onClick={() => toggleTargetsSort()} disabled={isDisabled}>
                   {targetsSort === 'asc' ? (
                     <><ArrowUp className="mr-2 h-4 w-4" /> Targets (A–Z)</>
                   ) : targetsSort === 'desc' ? (
@@ -396,7 +402,7 @@ export function ScrapeConfigsEditor() {
                     <><ArrowUpDown className="mr-2 h-4 w-4" /> Targets</>
                   )}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setGroupKeyOrder(groupKeyOrder === 'asc' ? 'desc' : groupKeyOrder === 'desc' ? 'stable' : 'asc')}>
+                <DropdownMenuItem onClick={() => setGroupKeyOrder(groupKeyOrder === 'asc' ? 'desc' : groupKeyOrder === 'desc' ? 'stable' : 'asc')} disabled={isDisabled}>
                   {groupKeyOrder === 'asc' ? (
                     <><ArrowUp className="mr-2 h-4 w-4" /> Group Name (A–Z)</>
                   ) : groupKeyOrder === 'desc' ? (
