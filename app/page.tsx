@@ -120,6 +120,7 @@ export default function PrometheusConfigEditor() {
           {!leftPanelCollapsed ? (
             <>
               <ResizablePanel
+                order={1}
                 defaultSize={leftPanelSize}
                 minSize={12}
                 maxSize={25}
@@ -134,7 +135,7 @@ export default function PrometheusConfigEditor() {
               <ResizableHandle withHandle />
             </>
           ) : (
-            <div className="flex flex-col items-center border-r border-border bg-card py-2 w-8">
+            <div className="flex flex-col items-center border-r border-border bg-card py-2 w-8 shrink-0">
               <Button
                 variant="ghost"
                 size="icon"
@@ -156,6 +157,7 @@ export default function PrometheusConfigEditor() {
           {!configPanelCollapsed ? (
             <>
               <ResizablePanel
+                order={2}
                 defaultSize={configPanelSize}
                 minSize={12}
                 maxSize={25}
@@ -170,7 +172,7 @@ export default function PrometheusConfigEditor() {
               <ResizableHandle withHandle />
             </>
           ) : (
-            <div className="flex flex-col items-center border-r border-border bg-card py-2 w-8">
+            <div className="flex flex-col items-center border-r border-border bg-card py-2 w-8 shrink-0">
               <Button
                 variant="ghost"
                 size="icon"
@@ -189,7 +191,7 @@ export default function PrometheusConfigEditor() {
           )}
 
           {/* Main Editor Panel - Always visible */}
-          <ResizablePanel defaultSize={45} minSize={30}>
+          <ResizablePanel order={3} defaultSize={45} minSize={30}>
             <ConfigErrorBoundary>
               <div className="flex h-full min-h-0 flex-col bg-background">
                 <EditorToolbar />
@@ -207,6 +209,7 @@ export default function PrometheusConfigEditor() {
             <>
               <ResizableHandle withHandle />
               <ResizablePanel
+                order={4}
                 defaultSize={yamlPanelSize}
                 minSize={20}
                 maxSize={40}
@@ -222,21 +225,21 @@ export default function PrometheusConfigEditor() {
               </ResizablePanel>
             </>
           ) : (
-            <div className="flex flex-col items-center border-l border-border bg-card py-2 w-8">
-              <div className="flex-1 flex items-center justify-center">
-                <span className="text-xs text-muted-foreground [writing-mode:vertical-lr]">
-                  YAML
-                </span>
-              </div>
+            <div className="flex flex-col items-center border-l border-border bg-card py-2 w-8 shrink-0">
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 mt-auto"
+                className="h-6 w-6"
                 onClick={() => setYamlPanelCollapsed(false)}
                 title="Expand YAML Panel"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
+              <div className="mt-2 flex-1 flex items-center justify-center">
+                <span className="text-xs text-muted-foreground [writing-mode:vertical-lr]">
+                  YAML
+                </span>
+              </div>
             </div>
           )}
         </ResizablePanelGroup>

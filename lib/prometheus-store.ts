@@ -1087,7 +1087,16 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           const groupIds = state.scrapeConfigs
             .filter((j) => canonicalScrapeGroup(j.scrape_group) === target)
             .map((j) => j.id)
-          return { selectedJobs: new Set(groupIds) }
+          const allSelected = groupIds.every((id) => state.selectedJobs.has(id))
+          const next = new Set(state.selectedJobs)
+          if (allSelected) {
+            // Deselect all jobs in this group
+            groupIds.forEach((id) => next.delete(id))
+          } else {
+            // Select all jobs in this group
+            groupIds.forEach((id) => next.add(id))
+          }
+          return { selectedJobs: next }
         })
       },
 

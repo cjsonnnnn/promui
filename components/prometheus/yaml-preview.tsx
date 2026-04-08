@@ -204,17 +204,16 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
               <span>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   onClick={() => void handleCopy()}
                   disabled={!hasResolvedFile}
-                  className="h-8"
+                  className="h-8 w-8"
                 >
                   {copied ? (
-                    <Check className="mr-1 h-4 w-4" />
+                    <Check className="h-4 w-4" />
                   ) : (
-                    <Copy className="mr-1 h-4 w-4" />
+                    <Copy className="h-4 w-4" />
                   )}
-                  Copy
                 </Button>
               </span>
             </TooltipTrigger>

@@ -43,8 +43,6 @@ import {
   Layers,
   ChevronUp,
   X,
-  CheckSquare,
-  Square,
   AlignJustify,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -115,6 +113,8 @@ export function ScrapeConfigsEditor() {
   const [collapsedBundleSections, setCollapsedBundleSections] = useState<Set<string>>(
     () => new Set()
   )
+  const [createGroupOpen, setCreateGroupOpen] = useState(false)
+  const [newGroupName, setNewGroupName] = useState('')
 
   const allJobsCollapsed = scrapeConfigs.length > 0 && collapsedJobs.size === scrapeConfigs.length
   const allBundlesCollapsed = useMemo(() => {
@@ -126,6 +126,23 @@ export function ScrapeConfigsEditor() {
       : new Set(scrapeConfigs.map(j => canonicalScrapeGroup(j.scrape_group))).size
     return totalBundles > 0 && collapsedBundleSections.size === totalBundles
   }, [scrapeConfigs, collapsedBundleSections, showGroupView])
+
+  // Memoized group selection handler for prefix view
+  const handlePrefixSelection = useCallback((jobs: ScrapeConfig[]) => {
+    const ids = jobs.map(j => j.id)
+    const allSelected = jobs.every(j => selectedJobs.has(j.id))
+    if (allSelected) {
+      // Deselect all
+      ids.forEach(id => {
+        if (selectedJobs.has(id)) toggleJobSelection(id)
+      })
+    } else {
+      // Select all
+      ids.forEach(id => {
+        if (!selectedJobs.has(id)) toggleJobSelection(id)
+      })
+    }
+  }, [selectedJobs, toggleJobSelection])
 
   const hasSelection = selectedJobs.size > 0
 
@@ -256,24 +273,6 @@ export function ScrapeConfigsEditor() {
     )
   }
 
-  const getSortButtonIcon = () => {
-    if (sortBy === 'name_asc') return <ArrowUp className="mr-2 h-4 w-4" />
-    if (sortBy === 'name_desc') return <ArrowDown className="mr-2 h-4 w-4" />
-    return <ArrowUpDown className="mr-2 h-4 w-4" />
-  }
-
-  const getSortButtonLabel = () => {
-    if (sortBy === 'name_asc') return 'Name A–Z'
-    if (sortBy === 'name_desc') return 'Name Z–A'
-    return 'Sort'
-  }
-
-  const getTargetsSortIcon = () => {
-    if (targetsSort === 'asc') return <ArrowUp className="mr-2 h-4 w-4" />
-    if (targetsSort === 'desc') return <ArrowDown className="mr-2 h-4 w-4" />
-    return <AlignJustify className="mr-2 h-4 w-4" />
-  }
-
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
@@ -341,30 +340,44 @@ export function ScrapeConfigsEditor() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {/* Sort Submenu */}
+            {/* Sort Menu - All sorting options in one place */}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
-                {getSortButtonIcon()}
-                {getSortButtonLabel()}
+                <ArrowUpDown className="mr-2 h-4 w-4" />
+                Sort
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuItem onClick={() => toggleSortBy()}>
                   {sortBy === 'name_asc' ? (
-                    <><ArrowUp className="mr-2 h-4 w-4" /> Name A–Z</>
+                    <><ArrowUp className="mr-2 h-4 w-4" /> Job Name (A–Z)</>
                   ) : sortBy === 'name_desc' ? (
-                    <><ArrowDown className="mr-2 h-4 w-4" /> Name Z–A</>
+                    <><ArrowDown className="mr-2 h-4 w-4" /> Job Name (Z–A)</>
                   ) : (
-                    <><ArrowUpDown className="mr-2 h-4 w-4" /> Toggle Sort</>
+                    <><ArrowUpDown className="mr-2 h-4 w-4" /> Job Name</>
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => toggleTargetsSort()}>
+                  {targetsSort === 'asc' ? (
+                    <><ArrowUp className="mr-2 h-4 w-4" /> Targets (A–Z)</>
+                  ) : targetsSort === 'desc' ? (
+                    <><ArrowDown className="mr-2 h-4 w-4" /> Targets (Z–A)</>
+                  ) : (
+                    <><ArrowUpDown className="mr-2 h-4 w-4" /> Targets</>
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setGroupKeyOrder(groupKeyOrder === 'asc' ? 'desc' : groupKeyOrder === 'desc' ? 'stable' : 'asc')}>
+                  {groupKeyOrder === 'asc' ? (
+                    <><ArrowUp className="mr-2 h-4 w-4" /> Group Name (A–Z)</>
+                  ) : groupKeyOrder === 'desc' ? (
+                    <><ArrowDown className="mr-2 h-4 w-4" /> Group Name (Z–A)</>
+                  ) : groupKeyOrder === 'stable' ? (
+                    <><AlignJustify className="mr-2 h-4 w-4" /> File Order</>
+                  ) : (
+                    <><ArrowUpDown className="mr-2 h-4 w-4" /> Group Order</>
                   )}
                 </DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-
-            {/* Targets Sort */}
-            <DropdownMenuItem onClick={() => toggleTargetsSort()}>
-              {getTargetsSortIcon()}
-              Sort Targets {targetsSort === 'asc' ? 'A–Z' : targetsSort === 'desc' ? 'Z–A' : ''}
-            </DropdownMenuItem>
 
             <DropdownMenuSeparator />
 
@@ -417,20 +430,6 @@ export function ScrapeConfigsEditor() {
           </SelectContent>
         </Select>
 
-        {/* Group Order */}
-        <Select
-          value={groupKeyOrder}
-          onValueChange={(v) => setGroupKeyOrder(v as 'stable' | 'asc' | 'desc')}
-        >
-          <SelectTrigger className="h-9 w-[130px] text-xs">
-            <SelectValue placeholder="Group order" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="stable">File order</SelectItem>
-            <SelectItem value="asc">Groups A–Z</SelectItem>
-            <SelectItem value="desc">Groups Z–A</SelectItem>
-          </SelectContent>
-        </Select>
       </div>
 
       {/* Batch Actions Bar */}
@@ -461,6 +460,11 @@ export function ScrapeConfigsEditor() {
                       {g}
                     </DropdownMenuItem>
                   ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setCreateGroupOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create new group...
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => batchUngroup(Array.from(selectedJobs))}>
                   Ungroup
@@ -494,9 +498,9 @@ export function ScrapeConfigsEditor() {
                     <div className="flex items-center gap-2">
                       <Checkbox
                         checked={allInPrefixSelected ? true : someInPrefixSelected ? 'indeterminate' : false}
-                        onCheckedChange={() => selectJobsInGroup(prefix)}
+                        onCheckedChange={() => handlePrefixSelection(jobs)}
                         onClick={(e) => e.stopPropagation()}
-                        className="mr-1"
+                        className="mr-1 border-2 border-border data-[state=checked]:border-primary data-[state=indeterminate]:border-primary"
                       />
                       {bundleCollapsed ? (
                         <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -557,7 +561,7 @@ export function ScrapeConfigsEditor() {
                         checked={allInGroupSelected ? true : someInGroupSelected ? 'indeterminate' : false}
                         onCheckedChange={() => selectJobsInGroup(section.key)}
                         onClick={(e) => e.stopPropagation()}
-                        className="mr-1"
+                        className="mr-1 border-2 border-border data-[state=checked]:border-primary data-[state=indeterminate]:border-primary"
                       />
                       {bundleCollapsed ? (
                         <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -678,6 +682,53 @@ export function ScrapeConfigsEditor() {
         </DialogContent>
       </Dialog>
 
+      {/* Create New Group Dialog */}
+      <Dialog open={createGroupOpen} onOpenChange={setCreateGroupOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Create New Group</DialogTitle>
+            <DialogDescription>
+              Enter a name for the new group. Selected jobs will be moved to this group.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              placeholder="Group name..."
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newGroupName.trim()) {
+                  batchMoveToGroup(Array.from(selectedJobs), newGroupName.trim())
+                  setNewGroupName('')
+                  setCreateGroupOpen(false)
+                }
+              }}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setCreateGroupOpen(false)
+              setNewGroupName('')
+            }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (newGroupName.trim()) {
+                  batchMoveToGroup(Array.from(selectedJobs), newGroupName.trim())
+                  setNewGroupName('')
+                  setCreateGroupOpen(false)
+                }
+              }}
+              disabled={!newGroupName.trim()}
+            >
+              Create & Move
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Single Delete Confirmation */}
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent>
@@ -757,7 +808,7 @@ function JobRow({
         <Checkbox
           checked={isSelected}
           onCheckedChange={onSelect}
-          className="mr-1"
+          className="mr-1 border-2 border-border data-[state=checked]:border-primary"
         />
         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onToggle}>
           {isCollapsed ? (
