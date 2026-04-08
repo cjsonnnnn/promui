@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePrometheusStore } from '@/lib/prometheus-store'
 import { FileExplorer } from '@/components/prometheus/file-explorer'
 import { ConfigTree } from '@/components/prometheus/config-tree'
@@ -17,6 +17,9 @@ import { RemoteWriteEditor } from '@/components/prometheus/editors/remote-write-
 import { RemoteReadEditor } from '@/components/prometheus/editors/remote-read-editor'
 import { StorageEditor } from '@/components/prometheus/editors/storage-editor'
 import { TracingEditor } from '@/components/prometheus/editors/tracing-editor'
+import { Button } from '@/components/ui/button'
+import { PanelLeft, PanelRight, FileText, ChevronRight, ChevronLeft } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import {
   ResizableHandle,
   ResizablePanel,
@@ -51,6 +54,16 @@ function ConfigEditor() {
 export default function PrometheusConfigEditor() {
   const { refreshFiles, refreshConfigInfo, setActiveFile, undo, redo } = usePrometheusStore()
   const bootstrapped = useRef(false)
+
+  // Panel collapse states
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false)
+  const [configPanelCollapsed, setConfigPanelCollapsed] = useState(false)
+  const [yamlPanelCollapsed, setYamlPanelCollapsed] = useState(false)
+
+  // Store previous sizes for restoration
+  const [leftPanelSize, setLeftPanelSize] = useState(15)
+  const [configPanelSize, setConfigPanelSize] = useState(15)
+  const [yamlPanelSize, setYamlPanelSize] = useState(25)
 
   useEffect(() => {
     if (bootstrapped.current) return
@@ -103,22 +116,79 @@ export default function PrometheusConfigEditor() {
         <TopBar />
 
         <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
-          <ResizablePanel defaultSize={15} minSize={12} maxSize={25}>
-            <ConfigErrorBoundary>
-              <FileExplorer />
-            </ConfigErrorBoundary>
-          </ResizablePanel>
+          {/* Left Panel - File Explorer */}
+          {!leftPanelCollapsed ? (
+            <>
+              <ResizablePanel
+                defaultSize={leftPanelSize}
+                minSize={12}
+                maxSize={25}
+                onResize={(size) => setLeftPanelSize(size)}
+              >
+                <ConfigErrorBoundary>
+                  <FileExplorer
+                    onCollapse={() => setLeftPanelCollapsed(true)}
+                  />
+                </ConfigErrorBoundary>
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+            </>
+          ) : (
+            <div className="flex flex-col items-center border-r border-border bg-card py-2 w-8">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setLeftPanelCollapsed(false)}
+                title="Expand Files Panel"
+              >
+                <PanelLeft className="h-4 w-4" />
+              </Button>
+              <div className="mt-2 flex-1 flex items-center justify-center">
+                <span className="text-xs text-muted-foreground [writing-mode:vertical-lr] rotate-180">
+                  Files
+                </span>
+              </div>
+            </div>
+          )}
 
-          <ResizableHandle withHandle />
+          {/* Config Tree Panel */}
+          {!configPanelCollapsed ? (
+            <>
+              <ResizablePanel
+                defaultSize={configPanelSize}
+                minSize={12}
+                maxSize={25}
+                onResize={(size) => setConfigPanelSize(size)}
+              >
+                <ConfigErrorBoundary>
+                  <ConfigTree
+                    onCollapse={() => setConfigPanelCollapsed(true)}
+                  />
+                </ConfigErrorBoundary>
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+            </>
+          ) : (
+            <div className="flex flex-col items-center border-r border-border bg-card py-2 w-8">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setConfigPanelCollapsed(false)}
+                title="Expand Config Panel"
+              >
+                <PanelRight className="h-4 w-4" />
+              </Button>
+              <div className="mt-2 flex-1 flex items-center justify-center">
+                <span className="text-xs text-muted-foreground [writing-mode:vertical-lr] rotate-180">
+                  Config
+                </span>
+              </div>
+            </div>
+          )}
 
-          <ResizablePanel defaultSize={15} minSize={12} maxSize={25}>
-            <ConfigErrorBoundary>
-              <ConfigTree />
-            </ConfigErrorBoundary>
-          </ResizablePanel>
-
-          <ResizableHandle withHandle />
-
+          {/* Main Editor Panel - Always visible */}
           <ResizablePanel defaultSize={45} minSize={30}>
             <ConfigErrorBoundary>
               <div className="flex h-full min-h-0 flex-col bg-background">
@@ -132,15 +202,43 @@ export default function PrometheusConfigEditor() {
             </ConfigErrorBoundary>
           </ResizablePanel>
 
-          <ResizableHandle withHandle />
-
-          <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
-            <div className="h-full min-h-0">
-              <ConfigErrorBoundary>
-                <YamlPreview />
-              </ConfigErrorBoundary>
+          {/* YAML Preview Panel */}
+          {!yamlPanelCollapsed ? (
+            <>
+              <ResizableHandle withHandle />
+              <ResizablePanel
+                defaultSize={yamlPanelSize}
+                minSize={20}
+                maxSize={40}
+                onResize={(size) => setYamlPanelSize(size)}
+              >
+                <div className="h-full min-h-0">
+                  <ConfigErrorBoundary>
+                    <YamlPreview
+                      onCollapse={() => setYamlPanelCollapsed(true)}
+                    />
+                  </ConfigErrorBoundary>
+                </div>
+              </ResizablePanel>
+            </>
+          ) : (
+            <div className="flex flex-col items-center border-l border-border bg-card py-2 w-8">
+              <div className="flex-1 flex items-center justify-center">
+                <span className="text-xs text-muted-foreground [writing-mode:vertical-lr]">
+                  YAML
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 mt-auto"
+                onClick={() => setYamlPanelCollapsed(false)}
+                title="Expand YAML Panel"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
             </div>
-          </ResizablePanel>
+          )}
         </ResizablePanelGroup>
       </div>
     </TooltipProvider>

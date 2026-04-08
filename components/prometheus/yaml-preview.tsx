@@ -6,7 +6,7 @@ import type * as monaco from "monaco-editor"
 import { usePrometheusStore } from "@/lib/prometheus-store"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Copy, Check, AlertCircle, FileCode, Download, Loader2 } from "lucide-react"
+import { Copy, Check, AlertCircle, FileCode, Download, Loader2, PanelRightClose } from "lucide-react"
 import { toast } from "sonner"
 import {
   Tooltip,
@@ -16,7 +16,7 @@ import {
 
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false })
 
-function useDebouncedCallback<T extends (...args: unknown[]) => void>(fn: T, ms: number) {
+function useDebouncedCallback<T extends (...args: string[]) => void>(fn: T, ms: number) {
   const t = useRef<ReturnType<typeof setTimeout> | null>(null)
   const f = useRef(fn)
   f.current = fn
@@ -29,7 +29,11 @@ function useDebouncedCallback<T extends (...args: unknown[]) => void>(fn: T, ms:
   ) as T
 }
 
-export function YamlPreview() {
+interface YamlPreviewProps {
+  onCollapse?: () => void
+}
+
+export function YamlPreview({ onCollapse }: YamlPreviewProps) {
   const {
     exportYaml,
     validateConfig,
@@ -215,6 +219,21 @@ export function YamlPreview() {
               </span>
             </TooltipTrigger>
             <TooltipContent>Copy YAML</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onCollapse}
+                  className="h-8"
+                >
+                  <PanelRightClose className="h-4 w-4" />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Collapse panel</TooltipContent>
           </Tooltip>
         </div>
       </div>

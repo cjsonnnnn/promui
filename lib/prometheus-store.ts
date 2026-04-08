@@ -29,7 +29,8 @@ import {
   canonicalScrapeGroup,
 } from '@/lib/scrape-group-utils'
 
-export type ScrapeSortMode = 'name_asc' | 'name_desc' | 'ip_asc' | 'ip_desc' | null
+export type ScrapeSortMode = 'name_asc' | 'name_desc' | null
+export type TargetsSortMode = 'asc' | 'desc' | null
 
 type HistorySnapshot = {
   config: PrometheusConfig
@@ -44,7 +45,9 @@ interface PrometheusStore {
   scrapeConfigs: ScrapeConfig[]
   searchQuery: string
   sortBy: ScrapeSortMode
+  targetsSort: TargetsSortMode
   collapsedJobs: Set<string>
+  selectedJobs: Set<string>
   collapsedSections: Set<string>
   activeSection: ConfigSection | null
   activeScrapeConfigId: string | null
@@ -116,15 +119,25 @@ interface PrometheusStore {
   deleteScrapeConfig: (id: string) => void
   duplicateScrapeConfig: (id: string) => void
   setActiveScrapeConfig: (id: string | null) => void
+  batchDeleteScrapeConfigs: (ids: string[]) => void
+  batchMoveToGroup: (ids: string[], groupName: string) => void
+  batchUngroup: (ids: string[]) => void
   
   // UI actions
   setSearchQuery: (query: string) => void
   setSortBy: (sort: ScrapeSortMode) => void
+  toggleSortBy: () => void
+  setTargetsSort: (sort: TargetsSortMode) => void
+  toggleTargetsSort: () => void
   toggleCollapse: (id: string) => void
   toggleSectionCollapse: (section: string) => void
   collapseAll: () => void
   expandAll: () => void
   setActiveSection: (section: ConfigSection | null) => void
+  toggleJobSelection: (id: string) => void
+  selectAllJobs: () => void
+  deselectAllJobs: () => void
+  selectJobsInGroup: (groupName: string) => void
   
   // Operations
   sortTargetsInJobs: (direction?: 'asc' | 'desc') => void
@@ -305,7 +318,9 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       scrapeConfigs: [],
       searchQuery: '',
       sortBy: null,
+      targetsSort: null,
       collapsedJobs: new Set<string>(),
+      selectedJobs: new Set<string>(),
       collapsedSections: new Set<string>(),
       activeSection: 'scrape_configs',
       activeScrapeConfigId: null,
@@ -910,6 +925,53 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
 
       setActiveScrapeConfig: (id) => set({ activeScrapeConfigId: id }),
 
+      batchDeleteScrapeConfigs: (ids) => {
+        const snapshot = { config: clone(get().config), scrapeConfigs: clone(get().scrapeConfigs) }
+        set((state) => {
+          const nextScrape = state.scrapeConfigs.filter((job) => !ids.includes(job.id))
+          const nextSelected = new Set(state.selectedJobs)
+          ids.forEach((id) => nextSelected.delete(id))
+          return {
+            scrapeConfigs: nextScrape,
+            config: mergeMetaGroups(state.config, nextScrape),
+            selectedJobs: nextSelected,
+            undoStack: [...state.undoStack, snapshot],
+            redoStack: [],
+          }
+        })
+      },
+
+      batchMoveToGroup: (ids, groupName) => {
+        const target = canonicalScrapeGroup(groupName)
+        const snapshot = { config: clone(get().config), scrapeConfigs: clone(get().scrapeConfigs) }
+        set((state) => {
+          const nextScrape = state.scrapeConfigs.map((job) =>
+            ids.includes(job.id) ? { ...job, scrape_group: target } : job
+          )
+          return {
+            scrapeConfigs: nextScrape,
+            config: mergeMetaGroups(state.config, nextScrape),
+            undoStack: [...state.undoStack, snapshot],
+            redoStack: [],
+          }
+        })
+      },
+
+      batchUngroup: (ids) => {
+        const snapshot = { config: clone(get().config), scrapeConfigs: clone(get().scrapeConfigs) }
+        set((state) => {
+          const nextScrape = state.scrapeConfigs.map((job) =>
+            ids.includes(job.id) ? { ...job, scrape_group: SCRAPE_GROUP_UNGROUPED } : job
+          )
+          return {
+            scrapeConfigs: nextScrape,
+            config: mergeMetaGroups(state.config, nextScrape),
+            undoStack: [...state.undoStack, snapshot],
+            redoStack: [],
+          }
+        })
+      },
+
       // UI actions
       setSearchQuery: (query) => set({ searchQuery: query }),
 
@@ -924,20 +986,6 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             case 'name_desc':
               sortedJobs.sort((a, b) => (b.job_name || '').localeCompare(a.job_name || ''))
               break
-            case 'ip_asc':
-              sortedJobs.sort((a, b) => {
-                const aTarget = a.static_configs?.[0]?.targets?.[0] || ''
-                const bTarget = b.static_configs?.[0]?.targets?.[0] || ''
-                return compareIps(extractIp(aTarget), extractIp(bTarget))
-              })
-              break
-            case 'ip_desc':
-              sortedJobs.sort((a, b) => {
-                const aTarget = a.static_configs?.[0]?.targets?.[0] || ''
-                const bTarget = b.static_configs?.[0]?.targets?.[0] || ''
-                return compareIps(extractIp(bTarget), extractIp(aTarget))
-              })
-              break
             default:
               break
           }
@@ -948,6 +996,33 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             redoStack: [],
           }
         })
+      },
+
+      toggleSortBy: () => {
+        const current = get().sortBy
+        let next: ScrapeSortMode
+        if (current === null || current === 'name_desc') {
+          next = 'name_asc'
+        } else {
+          next = 'name_desc'
+        }
+        get().setSortBy(next)
+      },
+
+      setTargetsSort: (sort) => {
+        set({ targetsSort: sort })
+      },
+
+      toggleTargetsSort: () => {
+        const current = get().targetsSort
+        let next: TargetsSortMode
+        if (current === null || current === 'desc') {
+          next = 'asc'
+        } else {
+          next = 'desc'
+        }
+        set({ targetsSort: next })
+        get().sortTargetsInJobs(next)
       },
 
       toggleCollapse: (id) => {
@@ -985,6 +1060,36 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       },
 
       setActiveSection: (section) => set({ activeSection: section }),
+
+      toggleJobSelection: (id) => {
+        set((state) => {
+          const next = new Set(state.selectedJobs)
+          if (next.has(id)) next.delete(id)
+          else next.add(id)
+          return { selectedJobs: next }
+        })
+      },
+
+      selectAllJobs: () => {
+        set((state) => {
+          const allIds = state.scrapeConfigs.map((j) => j.id)
+          return { selectedJobs: new Set(allIds) }
+        })
+      },
+
+      deselectAllJobs: () => {
+        set({ selectedJobs: new Set<string>() })
+      },
+
+      selectJobsInGroup: (groupName) => {
+        const target = canonicalScrapeGroup(groupName)
+        set((state) => {
+          const groupIds = state.scrapeConfigs
+            .filter((j) => canonicalScrapeGroup(j.scrape_group) === target)
+            .map((j) => j.id)
+          return { selectedJobs: new Set(groupIds) }
+        })
+      },
 
       // Operations
       sortTargetsInJobs: (direction = 'asc') => {

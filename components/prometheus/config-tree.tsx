@@ -12,9 +12,16 @@ import {
   Download,
   Database,
   Activity,
+  PanelRightClose,
 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { ConfigSection } from '@/lib/prometheus-types'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 interface TreeItem {
   section: ConfigSection
@@ -23,7 +30,11 @@ interface TreeItem {
   count?: number
 }
 
-export function ConfigTree() {
+interface ConfigTreeProps {
+  onCollapse?: () => void
+}
+
+export function ConfigTree({ onCollapse }: ConfigTreeProps) {
   const {
     config,
     scrapeConfigs,
@@ -104,8 +115,16 @@ export function ConfigTree() {
 
   return (
     <div className="flex h-full flex-col border-r border-border bg-card">
-      <div className="border-b border-border px-3 py-2">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="text-sm font-medium">Configuration</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCollapse}>
+              <PanelRightClose className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Collapse panel</TooltipContent>
+        </Tooltip>
       </div>
       <ScrollArea className="flex-1">
         <div className="p-2 space-y-0.5">
