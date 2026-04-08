@@ -79,10 +79,10 @@ export function FileExplorer() {
     uploadYamlFile,
     renameFile,
     saveYamlToDisk,
+    ensureInitialHistorySnapshot,
     flushEditorYamlToStore,
     discardUnsavedChanges,
     hasUnsavedYamlChanges,
-    requestOpenSaveDialog,
   } = usePrometheusStore()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -172,9 +172,7 @@ export function FileExplorer() {
     if (!file) return
     const content = await file.text()
     const input = e.target
-    await runWithUnsavedCheck(async () => {
-      await tryUpload(file, content)
-    })
+    await tryUpload(file, content)
     input.value = ""
   }
 
@@ -221,12 +219,14 @@ export function FileExplorer() {
         setConflictError(saved.error || "Failed to create file")
         return
       }
+      await ensureInitialHistorySnapshot(next, yaml)
     } else {
       const saved = await saveYamlToDisk(next, conflict.yaml)
       if (!saved.success) {
         setConflictError(saved.error || "Failed to save upload")
         return
       }
+      await ensureInitialHistorySnapshot(next, conflict.yaml)
     }
     setConflict(null)
     setIsNewFileOpen(false)
@@ -345,11 +345,7 @@ export function FileExplorer() {
           variant="outline"
           size="sm"
           className="w-full gap-2"
-          onClick={() =>
-            void runWithUnsavedCheck(async () => {
-              setIsNewFileOpen(true)
-            })
-          }
+          onClick={() => setIsNewFileOpen(true)}
         >
           <Plus className="h-3.5 w-3.5" />
           New File
@@ -369,10 +365,10 @@ export function FileExplorer() {
           <DialogHeader>
             <DialogTitle>Unsaved changes</DialogTitle>
             <DialogDescription>
-              You have unsaved changes. Save them, discard and continue, or stay on this file.
+              You have unsaved changes. Discard and continue, or stay on this file.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="justify-end gap-3 sm:justify-end">
             <Button
               variant="outline"
               onClick={() => {
@@ -394,18 +390,6 @@ export function FileExplorer() {
               }}
             >
               Discard changes
-            </Button>
-            <Button
-              onClick={() => {
-                const next = pendingAfterUnsavedRef.current
-                pendingAfterUnsavedRef.current = null
-                setUnsavedDialogOpen(false)
-                if (!next) return
-                usePrometheusStore.setState({ resumeAfterSave: () => void next() })
-                requestOpenSaveDialog()
-              }}
-            >
-              Save changes
             </Button>
           </DialogFooter>
         </DialogContent>

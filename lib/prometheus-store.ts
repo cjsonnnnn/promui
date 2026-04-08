@@ -77,6 +77,7 @@ interface PrometheusStore {
     filename: string,
     yaml: string
   ) => Promise<{ success: boolean; error?: string; conflict?: boolean }>
+  ensureInitialHistorySnapshot: (filename: string, yaml: string) => Promise<void>
   saveYamlToDisk: (filename: string, yaml: string) => Promise<{ success: boolean; error?: string }>
   fileExists: (filename: string) => Promise<boolean>
   refreshConfigInfo: () => Promise<void>
@@ -163,6 +164,21 @@ const defaultConfig: PrometheusConfig = {
 }
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
+
+const ensureValidConfigShape = (input: unknown): PrometheusConfig => {
+  const base = (input && typeof input === 'object' && !Array.isArray(input)
+    ? (input as Record<string, unknown>)
+    : {}) as Partial<PrometheusConfig>
+  return {
+    ...defaultConfig,
+    ...base,
+    global:
+      base.global && typeof base.global === 'object' && !Array.isArray(base.global)
+        ? (base.global as GlobalConfig)
+        : {},
+    scrape_configs: Array.isArray(base.scrape_configs) ? base.scrape_configs : [],
+  }
+}
 
 function editorResetPatch() {
   return {
@@ -341,6 +357,23 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         return { success: true }
       },
 
+      ensureInitialHistorySnapshot: async (filename, yaml) => {
+        try {
+          const existingRes = await fetch(`/api/config/history?file=${encodeURIComponent(filename)}`)
+          const existing = await parseApiResponse<{ versions?: ConfigHistoryEntry[] }>(existingRes)
+          if (existing.success && Array.isArray(existing.data?.versions) && existing.data.versions.length > 0) {
+            return
+          }
+          await fetch('/api/config/history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file: filename, yaml }),
+          })
+        } catch {
+          /* best effort only; editor can still load */
+        }
+      },
+
       loadHistoryForFile: async (filename) => {
         try {
           const response = await fetch(`/api/config/history?file=${encodeURIComponent(filename)}`)
@@ -404,6 +437,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         const yaml = YAML.stringify(defaultConfig, { indent: 2 })
         const saved = await get().saveYamlToDisk(t, yaml)
         if (!saved.success) return { success: false, error: saved.error }
+        await get().ensureInitialHistorySnapshot(t, yaml)
         await get().refreshFiles()
         await get().setActiveFile(t)
         return { success: true }
@@ -425,6 +459,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         }
         const saved = await get().saveYamlToDisk(t, yaml)
         if (!saved.success) return { success: false, error: saved.error }
+        await get().ensureInitialHistorySnapshot(t, yaml)
         await get().refreshFiles()
         await get().setActiveFile(t)
         return { success: true }
@@ -471,7 +506,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           const content = j.data.content
           let parsed: PrometheusConfig
           try {
-            parsed = YAML.parse(content) as PrometheusConfig
+            parsed = ensureValidConfigShape(YAML.parse(content))
           } catch (error) {
             set({
               activeFileId: id,
@@ -493,11 +528,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             return
           }
           delete (parsed as { meta?: unknown }).meta
-          const configBase: PrometheusConfig = {
-            ...defaultConfig,
-            ...parsed,
-            scrape_configs: parsed.scrape_configs || [],
-          }
+          const configBase = ensureValidConfigShape(parsed)
           const scrapeConfigs = fromConfig(configBase, content)
           const config = mergeMetaGroups({ ...configBase, meta: undefined }, scrapeConfigs)
           set({
@@ -854,18 +885,9 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
 
       importYaml: (yamlString, filename = 'prometheus.yml') => {
         try {
-          const parsed = YAML.parse(yamlString) as PrometheusConfig
+          const parsed = ensureValidConfigShape(YAML.parse(yamlString))
           delete (parsed as { meta?: unknown }).meta
-          const configBase: PrometheusConfig = {
-            global: parsed.global || defaultConfig.global,
-            scrape_configs: parsed.scrape_configs || [],
-            rule_files: parsed.rule_files || [],
-            alerting: parsed.alerting,
-            remote_write: parsed.remote_write,
-            remote_read: parsed.remote_read,
-            storage: parsed.storage,
-            tracing: parsed.tracing,
-          }
+          const configBase = ensureValidConfigShape(parsed)
           const scrapeConfigs = fromConfig(configBase, yamlString)
           const config = mergeMetaGroups({ ...configBase, meta: undefined }, scrapeConfigs)
 
@@ -922,7 +944,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
 
       hydrateFromYaml: (yaml) => {
         try {
-          const parsed = YAML.parse(yaml) as PrometheusConfig
+          const parsed = ensureValidConfigShape(YAML.parse(yaml))
           if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
             set({
               validationErrors: [
@@ -932,11 +954,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
             return { success: false, error: 'Invalid root' }
           }
           delete (parsed as { meta?: unknown }).meta
-          const configBase: PrometheusConfig = {
-            ...defaultConfig,
-            ...parsed,
-            scrape_configs: parsed?.scrape_configs || [],
-          }
+          const configBase = ensureValidConfigShape(parsed)
           const scrapeConfigs = fromConfig(configBase, yaml)
           const config = mergeMetaGroups({ ...configBase, meta: undefined }, scrapeConfigs)
           set({ config, scrapeConfigs })
