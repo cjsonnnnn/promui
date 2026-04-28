@@ -13,6 +13,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useMonaco } from "@monaco-editor/react"
 
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false })
 
@@ -21,6 +22,7 @@ interface YamlPreviewProps {
 }
 
 export function YamlPreview({ onCollapse }: YamlPreviewProps) {
+  const monacoInstance = useMonaco()
   const validationErrors = usePrometheusStore((s) => s.validationErrors)
   const activeFileId = usePrometheusStore((s) => s.activeFileId)
   const files = usePrometheusStore((s) => s.files)
@@ -43,6 +45,7 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
 
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const editorFocusedRef = useRef(false)
+  const [editorReady, setEditorReady] = useState(false)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   // Per-file timer + identity. Pending timers must NEVER fire after switching
   // files — that's how prometheus.yml content was leaking into other files.
@@ -185,7 +188,94 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
       resizeObserverRef.current?.disconnect()
       resizeObserverRef.current = ro
     }
+    setEditorReady(true)
   }
+
+  // Map validation errors into Monaco editor markers
+  useEffect(() => {
+    if (!monacoInstance || !editorRef.current || !editorReady) return
+    const model = editorRef.current.getModel()
+    if (!model) return
+
+    const markers = validationErrors.map((error) => {
+      let startLineNumber = 1
+      let endLineNumber = 1
+      let startColumn = 1
+      let endColumn = model.getLineMaxColumn(1) || 2
+
+      const lines = model.getLinesContent()
+      
+      // Best-effort search to find the specific line
+      if (error.field || error.section) {
+        let searchStartIndex = 0
+        
+        // If it's scoped to a job, find the job first
+        if (error.jobName) {
+          const jobIdx = lines.findIndex(l => l.includes(`job_name: ${error.jobName}`) || l.includes(`job_name: "${error.jobName}"`) || l.includes(`job_name: '${error.jobName}'`))
+          if (jobIdx >= 0) searchStartIndex = jobIdx
+        } else if (error.section) {
+          // If it's scoped to a section (e.g., global), find that section
+          const sectionIdx = lines.findIndex(l => l.trim() === `${error.section}:`)
+          if (sectionIdx >= 0) searchStartIndex = sectionIdx
+        }
+
+        // Now find the field
+        if (error.field) {
+          for (let i = searchStartIndex; i < lines.length; i++) {
+            const line = lines[i]
+            const fieldMatch = line.indexOf(`${error.field}:`)
+            if (fieldMatch >= 0) {
+              startLineNumber = i + 1
+              endLineNumber = i + 1
+              const colonIndex = line.indexOf(':', fieldMatch)
+              let valStart = colonIndex + 1
+              while (valStart < line.length && (line[valStart] === ' ' || line[valStart] === '\t')) {
+                valStart++
+              }
+              startColumn = valStart + 1
+              endColumn = line.length + 1
+              break
+            }
+          }
+        } else if (error.target) {
+          // If it's a target error, search for the target string
+          for (let i = searchStartIndex; i < lines.length; i++) {
+            const line = lines[i]
+            const targetIdx = line.indexOf(error.target)
+            if (targetIdx >= 0) {
+              startLineNumber = i + 1
+              endLineNumber = i + 1
+              startColumn = targetIdx + 1
+              endColumn = targetIdx + error.target.length + 1
+              break
+            }
+          }
+        } else if (searchStartIndex > 0) {
+          startLineNumber = searchStartIndex + 1
+          endLineNumber = searchStartIndex + 1
+          startColumn = lines[searchStartIndex].length - lines[searchStartIndex].trimStart().length + 1
+          endColumn = lines[searchStartIndex].length + 1
+        }
+      }
+
+      return {
+        severity: monacoInstance.MarkerSeverity.Error,
+        message: error.message,
+        startLineNumber,
+        startColumn,
+        endLineNumber,
+        endColumn,
+      }
+    })
+
+    monacoInstance.editor.setModelMarkers(model, "yaml-validation", markers)
+
+    return () => {
+      if (!model.isDisposed()) {
+        monacoInstance.editor.setModelMarkers(model, "yaml-validation", [])
+      }
+    }
+  }, [monacoInstance, validationErrors, editorReady])
 
   // Re-run on actual config/scrapeConfigs ref changes. validateConfig is
   // idempotent now (no-ops when validationErrors are equivalent).
@@ -249,19 +339,37 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     }
   }
 
-  const handleDownload = () => {
+  const handleDownload = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
     if (!resolvedFile) return
-    const yaml = editorRef.current?.getValue() ?? exportYaml()
-    const filename = resolvedFile.filename
-    const blob = new Blob([yaml], { type: "text/yaml" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    try {
+      const yaml = editorRef.current?.getValue() ?? exportYaml()
+      const filename = resolvedFile.filename || "prometheus.yml"
+      
+      const blob = new Blob([yaml], { type: "text/plain;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      
+      const a = document.createElement("a")
+      a.style.display = "none"
+      a.href = url
+      a.download = filename
+      
+      document.body.appendChild(a)
+      a.click()
+      
+      // Increase timeout to ensure the browser has enough time to register
+      // the download name before the object URL is revoked.
+      setTimeout(() => {
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      }, 1000)
+    } catch (err) {
+      console.error("Download failed:", err)
+      toast.error("Failed to download file")
+    }
   }
 
   return (

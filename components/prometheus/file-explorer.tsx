@@ -137,13 +137,16 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
   const renamePreview = useMemo(() => normalizeFilename(renameValue), [renameValue])
   const duplicatePreview = useMemo(() => normalizeFilename(duplicateValue), [duplicateValue])
 
-  const runWithUnsavedCheck = async (action: () => Promise<void>) => {
+  const runWithUnsavedCheck = (action: () => void | Promise<void>) => {
     flushEditorYamlToStore?.()
     if (!hasUnsavedYamlChanges()) {
-      await action()
+      const res = action()
+      if (res instanceof Promise) {
+        res.catch(console.error)
+      }
       return
     }
-    pendingAfterUnsavedRef.current = action
+    pendingAfterUnsavedRef.current = async () => { await action() }
     setUnsavedDialogOpen(true)
   }
 
@@ -323,7 +326,11 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => fileInputRef.current?.click()}>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
+                runWithUnsavedCheck(() => {
+                  fileInputRef.current?.click()
+                })
+              }}>
                 <Upload className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
@@ -444,7 +451,9 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
           variant="outline"
           size="sm"
           className="w-full gap-2"
-          onClick={() => setIsNewFileOpen(true)}
+          onClick={() => {
+            runWithUnsavedCheck(() => setIsNewFileOpen(true))
+          }}
         >
           <Plus className="h-3.5 w-3.5" />
           New File
