@@ -5,10 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev       # Start dev server (Next.js)
+npm run dev       # Start dev server (Next.js, webpack)
 npm run build     # Production build
 npm run lint      # Run ESLint
 ```
+
+The dev script uses `--webpack` explicitly. Turbopack (Next.js 16's default) panics on this CPU due to missing BMI2 instruction support, which causes React to never hydrate — the UI renders visually from SSR but all interactions are broken.
 
 No test suite is configured. TypeScript strict mode is on, but `next.config.mjs` sets `typescript.ignoreBuildErrors: true`, so the build won't fail on type errors.
 

@@ -57,6 +57,7 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
 
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const editorFocusedRef = useRef(false)
+  const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const [copied, setCopied] = useState(false)
   const [lineCount, setLineCount] = useState(1)
 
@@ -80,9 +81,11 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     return () => setFlushEditorYamlToStore(null)
   }, [setFlushEditorYamlToStore])
 
-  // Cleanup editor on unmount to prevent memory leaks and freezes
+  // Cleanup editor and ResizeObserver on unmount
   useEffect(() => {
     return () => {
+      resizeObserverRef.current?.disconnect()
+      resizeObserverRef.current = null
       const ed = editorRef.current
       if (ed) {
         ed.dispose()
@@ -103,6 +106,27 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     const initial = exportYaml()
     editor.setValue(initial)
     setLineCount(initial.split("\n").length)
+
+    // Replace automaticLayout with a debounced ResizeObserver that skips layout
+    // at 0×0. Debouncing prevents repeated layout calls during panel animations
+    // (collapse/expand), firing once only after the animation settles.
+    const container = editor.getContainerDomNode()
+    if (container) {
+      let timerId: ReturnType<typeof setTimeout> | null = null
+      const ro = new ResizeObserver(() => {
+        if (timerId !== null) clearTimeout(timerId)
+        timerId = setTimeout(() => {
+          timerId = null
+          const rect = container.getBoundingClientRect()
+          if (rect.width > 0 && rect.height > 0) {
+            editorRef.current?.layout()
+          }
+        }, 150)
+      })
+      ro.observe(container)
+      resizeObserverRef.current?.disconnect()
+      resizeObserverRef.current = ro
+    }
   }
 
   // Stable ref for tracking if this is initial mount or data change
@@ -304,7 +328,7 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
               fontSize: 12,
               wordWrap: "on",
               scrollBeyondLastLine: false,
-              automaticLayout: true,
+              automaticLayout: false,
               tabSize: 2,
             }}
           />

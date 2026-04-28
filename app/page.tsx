@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from 'react'
+import type { ImperativePanelHandle } from 'react-resizable-panels'
 import { usePrometheusStore } from '@/lib/prometheus-store'
 import { FileExplorer } from '@/components/prometheus/file-explorer'
 import { ConfigTree } from '@/components/prometheus/config-tree'
@@ -64,6 +65,7 @@ export default function PrometheusConfigEditor() {
   const [leftPanelSize, setLeftPanelSize] = useState(15)
   const [configPanelSize, setConfigPanelSize] = useState(15)
   const [yamlPanelSize, setYamlPanelSize] = useState(25)
+  const yamlPanelRef = useRef<ImperativePanelHandle>(null)
 
   useEffect(() => {
     if (bootstrapped.current) return
@@ -204,33 +206,35 @@ export default function PrometheusConfigEditor() {
             </ConfigErrorBoundary>
           </ResizablePanel>
 
-          {/* YAML Preview Panel */}
-          {!yamlPanelCollapsed ? (
-            <>
-              <ResizableHandle withHandle />
-              <ResizablePanel
-                order={4}
-                defaultSize={yamlPanelSize}
-                minSize={20}
-                maxSize={40}
-                onResize={(size) => setYamlPanelSize(size)}
-              >
-                <div className="h-full min-h-0">
-                  <ConfigErrorBoundary>
-                    <YamlPreview
-                      onCollapse={() => setYamlPanelCollapsed(true)}
-                    />
-                  </ConfigErrorBoundary>
-                </div>
-              </ResizablePanel>
-            </>
-          ) : (
+          {/* YAML Preview Panel - always mounted to prevent Monaco re-init on collapse/expand */}
+          <ResizableHandle withHandle className={cn(yamlPanelCollapsed && "hidden")} />
+          <ResizablePanel
+            ref={yamlPanelRef}
+            order={4}
+            collapsible
+            collapsedSize={0}
+            defaultSize={yamlPanelSize}
+            minSize={20}
+            maxSize={40}
+            onResize={(size) => { if (size > 0) setYamlPanelSize(size) }}
+            onCollapse={() => setYamlPanelCollapsed(true)}
+            onExpand={() => setYamlPanelCollapsed(false)}
+          >
+            <div className="h-full min-h-0">
+              <ConfigErrorBoundary>
+                <YamlPreview
+                  onCollapse={() => yamlPanelRef.current?.collapse()}
+                />
+              </ConfigErrorBoundary>
+            </div>
+          </ResizablePanel>
+          {yamlPanelCollapsed && (
             <div className="flex flex-col items-center border-l border-border bg-card py-2 w-8 shrink-0">
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6"
-                onClick={() => setYamlPanelCollapsed(false)}
+                onClick={() => yamlPanelRef.current?.expand()}
                 title="Expand YAML Panel"
               >
                 <PanelRight className="h-4 w-4" />
