@@ -1,7 +1,7 @@
 "use client"
 
 import dynamic from "next/dynamic"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type * as monaco from "monaco-editor"
 import { usePrometheusStore } from "@/lib/prometheus-store"
 import { Button } from "@/components/ui/button"
@@ -34,19 +34,18 @@ interface YamlPreviewProps {
 }
 
 export function YamlPreview({ onCollapse }: YamlPreviewProps) {
-  const {
-    validateConfig,
-    validationErrors,
-    activeFileId,
-    files,
-    hydrateFromYaml,
-    config,
-    scrapeConfigs,
-    isLoadingFile,
-    setFlushEditorYamlToStore,
-  } = usePrometheusStore()
-  
-  // Get exportYaml from store directly to avoid dependency issues
+  const validationErrors = usePrometheusStore((s) => s.validationErrors)
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const files = usePrometheusStore((s) => s.files)
+  const isLoadingFile = usePrometheusStore((s) => s.isLoadingFile)
+  const config = usePrometheusStore((s) => s.config)
+  const scrapeConfigs = usePrometheusStore((s) => s.scrapeConfigs)
+
+  const hydrateFromYaml = usePrometheusStore((s) => s.hydrateFromYaml)
+  const setFlushEditorYamlToStore = usePrometheusStore(
+    (s) => s.setFlushEditorYamlToStore
+  )
+
   const exportYaml = useCallback(() => usePrometheusStore.getState().exportYaml(), [])
 
   const resolvedFile =
@@ -129,25 +128,17 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     }
   }
 
-  // Stable ref for tracking if this is initial mount or data change
-  const contentHash = useMemo(() => {
-    // Create a simple hash from config and scrapeConfigs to detect actual data changes
-    const configStr = JSON.stringify(config)
-    const jobsStr = JSON.stringify(scrapeConfigs.map(j => j.id))
-    return `${configStr.length}-${jobsStr.length}`
-  }, [config, scrapeConfigs])
-
+  // Re-run on actual config/scrapeConfigs ref changes. validateConfig is
+  // idempotent now (no-ops when validationErrors are equivalent).
   useEffect(() => {
     if (!hasResolvedFile) {
-      usePrometheusStore.setState({ validationErrors: [] })
+      const cur = usePrometheusStore.getState().validationErrors
+      if (cur.length > 0) usePrometheusStore.setState({ validationErrors: [] })
       return
     }
-    // Use getState to access validateConfig without dependency issues
     usePrometheusStore.getState().validateConfig()
-    // Only run when file or data changes, not when validateConfig reference changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasResolvedFile, contentHash])
-  
+  }, [hasResolvedFile, config, scrapeConfigs])
+
   useEffect(() => {
     if (!hasResolvedFile || !editorRef.current || editorFocusedRef.current) return
     const next = usePrometheusStore.getState().exportYaml()
@@ -156,9 +147,7 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
       editorRef.current.setValue(next)
       setLineCount(next.split("\n").length)
     }
-    // Only depend on content hash, not individual objects or functions
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasResolvedFile, contentHash])
+  }, [hasResolvedFile, config, scrapeConfigs])
 
   const copyYamlToClipboard = async (text: string) => {
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {

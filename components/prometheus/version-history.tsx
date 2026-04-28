@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { usePrometheusStore } from "@/lib/prometheus-store"
+import { canonicalYamlFingerprint } from "@/lib/yaml-canonical"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
@@ -36,19 +37,13 @@ function formatTs(iso: string): string {
 }
 
 export function VersionHistory() {
-  const {
-    activeFileId,
-    files,
-    historyVersions,
-    loadHistoryForFile,
-    restoreHistoryEntry,
-    exportYaml,
-    flushEditorYamlToStore,
-    isHistoryEntryActiveInEditor,
-  } = usePrometheusStore()
-
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const files = usePrometheusStore((s) => s.files)
+  const historyVersions = usePrometheusStore((s) => s.historyVersions)
   const yamlEditGeneration = usePrometheusStore((s) => s.yamlTouchCounter)
-  const scrapeJobs = usePrometheusStore((s) => s.scrapeConfigs)
+
+  const loadHistoryForFile = usePrometheusStore((s) => s.loadHistoryForFile)
+  const restoreHistoryEntry = usePrometheusStore((s) => s.restoreHistoryEntry)
 
   const hasResolvedFile = Boolean(
     activeFileId && files.some((f) => f.id === activeFileId)
@@ -70,11 +65,12 @@ export function VersionHistory() {
     }
   }, [hasResolvedFile, activeFileId, loadHistoryForFile])
 
-  // Refresh history when dialog opens
+  // When the dialog opens, flush the Monaco editor into the store once so
+  // the "Currently active" badge reflects unsaved edits, then refresh.
   useEffect(() => {
-    if (isOpen && hasResolvedFile && activeFileId) {
-      void loadHistoryForFile(activeFileId)
-    }
+    if (!isOpen || !hasResolvedFile || !activeFileId) return
+    usePrometheusStore.getState().flushEditorYamlToStore?.()
+    void loadHistoryForFile(activeFileId)
   }, [isOpen, hasResolvedFile, activeFileId, loadHistoryForFile])
 
   const sorted = useMemo(
@@ -85,11 +81,24 @@ export function VersionHistory() {
     [historyVersions]
   )
 
+  // Compute "currently active" once per render, not per history-entry.
+  // Recomputes when the dialog is open and yamlTouchCounter / history change.
+  const activeVersionId = useMemo<string | null>(() => {
+    if (!isOpen || sorted.length === 0) return null
+    const currentFp = canonicalYamlFingerprint(
+      usePrometheusStore.getState().exportYaml()
+    )
+    for (const v of sorted) {
+      if (canonicalYamlFingerprint(v.yaml) === currentFp) return v.id
+    }
+    return null
+  }, [isOpen, sorted, yamlEditGeneration, activeFileId])
+
   const beginRestoreDiff = (versionId: string) => {
     const entry = historyVersions.find((v) => v.id === versionId)
     if (!entry) return
-    flushEditorYamlToStore?.()
-    setBeforeRestoreYaml(exportYaml())
+    usePrometheusStore.getState().flushEditorYamlToStore?.()
+    setBeforeRestoreYaml(usePrometheusStore.getState().exportYaml())
     setAfterRestoreYaml(entry.yaml)
     setRestoreTargetId(versionId)
     setRestoreDiffOpen(true)
@@ -105,10 +114,6 @@ export function VersionHistory() {
 
   return (
     <>
-      <span className="sr-only" aria-hidden>
-        {yamlEditGeneration}
-        {scrapeJobs.length}
-      </span>
       <Tooltip>
         <TooltipTrigger asChild>
           <span>
@@ -156,7 +161,7 @@ export function VersionHistory() {
             ) : (
               <div className="space-y-2">
                 {sorted.map((version, index) => {
-                  const isActive = isHistoryEntryActiveInEditor(version.id)
+                  const isActive = activeVersionId === version.id
                   return (
                     <div
                       key={version.id}

@@ -9,7 +9,12 @@ import { Plus, Trash2, FileText, File } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function RuleFilesEditor() {
-  const { config, addRuleFile, deleteRuleFile, setRuleFiles, activeFileId, files } = usePrometheusStore()
+  const config = usePrometheusStore((s) => s.config)
+  const addRuleFile = usePrometheusStore((s) => s.addRuleFile)
+  const deleteRuleFile = usePrometheusStore((s) => s.deleteRuleFile)
+  const setRuleFiles = usePrometheusStore((s) => s.setRuleFiles)
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const files = usePrometheusStore((s) => s.files)
   const ruleFiles = config.rule_files || []
 
   const hasResolvedFile = Boolean(

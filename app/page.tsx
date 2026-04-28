@@ -28,7 +28,7 @@ import {
 } from '@/components/ui/resizable'
 
 function ConfigEditor() {
-  const { activeSection } = usePrometheusStore()
+  const activeSection = usePrometheusStore((s) => s.activeSection)
 
   switch (activeSection) {
     case 'global':
@@ -53,7 +53,11 @@ function ConfigEditor() {
 }
 
 export default function PrometheusConfigEditor() {
-  const { refreshFiles, refreshConfigInfo, setActiveFile, undo, redo } = usePrometheusStore()
+  const refreshFiles = usePrometheusStore((s) => s.refreshFiles)
+  const refreshConfigInfo = usePrometheusStore((s) => s.refreshConfigInfo)
+  const setActiveFile = usePrometheusStore((s) => s.setActiveFile)
+  const undo = usePrometheusStore((s) => s.undo)
+  const redo = usePrometheusStore((s) => s.redo)
   const bootstrapped = useRef(false)
 
   // Panel collapse states

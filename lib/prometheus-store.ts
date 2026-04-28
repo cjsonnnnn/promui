@@ -294,6 +294,46 @@ function mergeMetaGroups(config: PrometheusConfig, jobs: ScrapeConfig[]): Promet
   }
 }
 
+function validationErrorsEqual(a: ValidationError[], b: ValidationError[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (
+      x.type !== y.type ||
+      x.message !== y.message ||
+      x.field !== y.field ||
+      x.jobName !== y.jobName ||
+      x.section !== y.section ||
+      x.target !== y.target
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+function shallowEqualConfig(a: PrometheusConfig, b: PrometheusConfig): boolean {
+  if (a === b) return true
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+function scrapeListEqual(a: ScrapeConfig[], b: ScrapeConfig[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (x === y) continue
+    // Compare ignoring volatile id field.
+    const { id: _xi, ...xRest } = x
+    const { id: _yi, ...yRest } = y
+    if (JSON.stringify(xRest) !== JSON.stringify(yRest)) return false
+  }
+  return true
+}
+
 const fromConfig = (config: PrometheusConfig, rawYaml?: string): ScrapeConfig[] => {
   const arr = (config.scrape_configs || []).map((sc) =>
     normalizeScrapeJobFromYaml(sc, generateId())
@@ -1262,30 +1302,44 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         try {
           const parsed = ensureValidConfigShape(YAML.parse(yaml))
           if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            set({
-              validationErrors: [
-                { type: 'invalid_yaml', message: 'YAML root must be a mapping (object)' },
-              ],
-            })
+            const next: ValidationError[] = [
+              { type: 'invalid_yaml', message: 'YAML root must be a mapping (object)' },
+            ]
+            if (!validationErrorsEqual(get().validationErrors, next)) {
+              set({ validationErrors: next })
+            }
             return { success: false, error: 'Invalid root' }
           }
           delete (parsed as { meta?: unknown }).meta
           const configBase = ensureValidConfigShape(parsed)
           const scrapeConfigs = fromConfig(configBase, yaml)
           const config = mergeMetaGroups({ ...configBase, meta: undefined }, scrapeConfigs)
+
+          // Short-circuit when the parsed result is identical to current state.
+          // Prevents re-render storms when the editor blurs/relayouts and replays
+          // the same YAML it already represents.
+          const prev = get()
+          if (
+            shallowEqualConfig(prev.config, config) &&
+            scrapeListEqual(prev.scrapeConfigs, scrapeConfigs)
+          ) {
+            return { success: true }
+          }
+
           set({ config, scrapeConfigs })
           set((s) => ({ yamlTouchCounter: s.yamlTouchCounter + 1 }))
           get().validateConfig()
           return { success: true }
         } catch (error) {
-          set({
-            validationErrors: [
-              {
-                type: 'invalid_yaml',
-                message: `Invalid YAML: ${(error as Error).message}`,
-              },
-            ],
-          })
+          const next: ValidationError[] = [
+            {
+              type: 'invalid_yaml',
+              message: `Invalid YAML: ${(error as Error).message}`,
+            },
+          ]
+          if (!validationErrorsEqual(get().validationErrors, next)) {
+            set({ validationErrors: next })
+          }
           return { success: false, error: (error as Error).message }
         }
       },
@@ -1306,7 +1360,9 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       isHistoryEntryActiveInEditor: (versionId) => {
         const entry = get().historyVersions.find((v) => v.id === versionId)
         if (!entry) return false
-        get().flushEditorYamlToStore?.()
+        // Pure read: never call flushEditorYamlToStore here. Doing so mutates
+        // store state, and this fn is invoked inside render in version-history,
+        // which would trigger an infinite re-render loop.
         return (
           canonicalYamlFingerprint(entry.yaml) ===
           canonicalYamlFingerprint(get().exportYaml())
@@ -1480,7 +1536,9 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           validateDuration(rr.remote_timeout, 'remote_timeout', 'remote_read')
         })
 
-        set({ validationErrors: errors })
+        if (!validationErrorsEqual(get().validationErrors, errors)) {
+          set({ validationErrors: errors })
+        }
         return errors
       },
 

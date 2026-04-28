@@ -73,37 +73,35 @@ function groupSectionId(name: string) {
 }
 
 export function ScrapeConfigsEditor() {
-  const {
-    scrapeConfigs,
-    searchQuery,
-    setSearchQuery,
-    sortBy,
-    toggleSortBy,
-    targetsSort,
-    toggleTargetsSort,
-    groupKeyOrder,
-    setGroupKeyOrder,
-    collapsedJobs,
-    toggleCollapse,
-    collapseAll,
-    expandAll,
-    deleteScrapeConfig,
-    duplicateScrapeConfig,
-    normalizeFormatting,
-    config,
-    renameScrapeGroup,
-    deleteScrapeGroup,
-    selectedJobs,
-    toggleJobSelection,
-    selectAllJobs,
-    deselectAllJobs,
-    selectJobsInGroup,
-    batchDeleteScrapeConfigs,
-    batchMoveToGroup,
-    batchUngroup,
-    activeFileId,
-    files,
-  } = usePrometheusStore()
+  const scrapeConfigs = usePrometheusStore((s) => s.scrapeConfigs)
+  const searchQuery = usePrometheusStore((s) => s.searchQuery)
+  const sortBy = usePrometheusStore((s) => s.sortBy)
+  const targetsSort = usePrometheusStore((s) => s.targetsSort)
+  const groupKeyOrder = usePrometheusStore((s) => s.groupKeyOrder)
+  const collapsedJobs = usePrometheusStore((s) => s.collapsedJobs)
+  const config = usePrometheusStore((s) => s.config)
+  const selectedJobs = usePrometheusStore((s) => s.selectedJobs)
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const files = usePrometheusStore((s) => s.files)
+
+  const setSearchQuery = usePrometheusStore((s) => s.setSearchQuery)
+  const toggleSortBy = usePrometheusStore((s) => s.toggleSortBy)
+  const toggleTargetsSort = usePrometheusStore((s) => s.toggleTargetsSort)
+  const setGroupKeyOrder = usePrometheusStore((s) => s.setGroupKeyOrder)
+  const toggleCollapse = usePrometheusStore((s) => s.toggleCollapse)
+  const collapseAll = usePrometheusStore((s) => s.collapseAll)
+  const expandAll = usePrometheusStore((s) => s.expandAll)
+  const deleteScrapeConfig = usePrometheusStore((s) => s.deleteScrapeConfig)
+  const duplicateScrapeConfig = usePrometheusStore((s) => s.duplicateScrapeConfig)
+  const normalizeFormatting = usePrometheusStore((s) => s.normalizeFormatting)
+  const renameScrapeGroup = usePrometheusStore((s) => s.renameScrapeGroup)
+  const deleteScrapeGroup = usePrometheusStore((s) => s.deleteScrapeGroup)
+  const toggleJobSelection = usePrometheusStore((s) => s.toggleJobSelection)
+  const deselectAllJobs = usePrometheusStore((s) => s.deselectAllJobs)
+  const selectJobsInGroup = usePrometheusStore((s) => s.selectJobsInGroup)
+  const batchDeleteScrapeConfigs = usePrometheusStore((s) => s.batchDeleteScrapeConfigs)
+  const batchMoveToGroup = usePrometheusStore((s) => s.batchMoveToGroup)
+  const batchUngroup = usePrometheusStore((s) => s.batchUngroup)
   
   const hasResolvedFile = Boolean(
     activeFileId && files.some((f) => f.id === activeFileId)

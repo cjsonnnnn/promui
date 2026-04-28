@@ -25,8 +25,12 @@ import {
 import { cn } from '@/lib/utils'
 
 export function RemoteReadEditor() {
-  const { config, addRemoteRead, updateRemoteRead, deleteRemoteRead, activeFileId, files } =
-    usePrometheusStore()
+  const config = usePrometheusStore((s) => s.config)
+  const addRemoteRead = usePrometheusStore((s) => s.addRemoteRead)
+  const updateRemoteRead = usePrometheusStore((s) => s.updateRemoteRead)
+  const deleteRemoteRead = usePrometheusStore((s) => s.deleteRemoteRead)
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const files = usePrometheusStore((s) => s.files)
   const remoteReads = config.remote_read || []
 
   const hasResolvedFile = Boolean(

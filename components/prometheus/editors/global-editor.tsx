@@ -9,7 +9,10 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
 export function GlobalEditor() {
-  const { config, updateGlobal, activeFileId, files } = usePrometheusStore()
+  const config = usePrometheusStore((s) => s.config)
+  const updateGlobal = usePrometheusStore((s) => s.updateGlobal)
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const files = usePrometheusStore((s) => s.files)
   const global = config.global || {}
   
   const hasResolvedFile = Boolean(

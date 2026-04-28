@@ -39,8 +39,11 @@ interface LabelEntry {
 }
 
 export function JobEditorModal({ open, onOpenChange, job }: JobEditorModalProps) {
-  const { addScrapeConfig, updateScrapeConfig, validateConfig, config, addScrapeGroup } =
-    usePrometheusStore()
+  const addScrapeConfig = usePrometheusStore((s) => s.addScrapeConfig)
+  const updateScrapeConfig = usePrometheusStore((s) => s.updateScrapeConfig)
+  const validateConfig = usePrometheusStore((s) => s.validateConfig)
+  const config = usePrometheusStore((s) => s.config)
+  const addScrapeGroup = usePrometheusStore((s) => s.addScrapeGroup)
 
   const [jobName, setJobName] = useState('')
   const [targets, setTargets] = useState<string[]>([''])

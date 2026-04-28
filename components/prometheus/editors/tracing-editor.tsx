@@ -9,7 +9,8 @@ import { cn } from "@/lib/utils"
  * Structured editing for tracing is not implemented in this build.
  */
 export function TracingEditor() {
-  const { activeFileId, files } = usePrometheusStore()
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const files = usePrometheusStore((s) => s.files)
   const hasResolvedFile = Boolean(
     activeFileId && files.some((f) => f.id === activeFileId)
   )

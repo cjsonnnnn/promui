@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from 'react'
 import { usePrometheusStore } from '@/lib/prometheus-store'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -16,8 +17,12 @@ import {
 import { BarChart3, Server, Target, FileText, Upload, Download, Bell, AlertTriangle } from 'lucide-react'
 
 export function ConfigStats() {
-  const { getStats } = usePrometheusStore()
-  const stats = getStats()
+  const config = usePrometheusStore((s) => s.config)
+  const scrapeConfigs = usePrometheusStore((s) => s.scrapeConfigs)
+  const stats = useMemo(
+    () => usePrometheusStore.getState().getStats(),
+    [config, scrapeConfigs]
+  )
 
   return (
     <Popover>

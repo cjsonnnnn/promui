@@ -35,14 +35,12 @@ interface ConfigTreeProps {
 }
 
 export function ConfigTree({ onCollapse }: ConfigTreeProps) {
-  const {
-    config,
-    scrapeConfigs,
-    activeSection,
-    setActiveSection,
-    activeFileId,
-    files,
-  } = usePrometheusStore()
+  const config = usePrometheusStore((s) => s.config)
+  const scrapeConfigs = usePrometheusStore((s) => s.scrapeConfigs)
+  const activeSection = usePrometheusStore((s) => s.activeSection)
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const files = usePrometheusStore((s) => s.files)
+  const setActiveSection = usePrometheusStore((s) => s.setActiveSection)
 
   const hasResolvedFile = Boolean(
     activeFileId && files.some((f) => f.id === activeFileId)

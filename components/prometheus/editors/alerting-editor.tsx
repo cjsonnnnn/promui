@@ -26,7 +26,10 @@ import {
 import { cn } from '@/lib/utils'
 
 export function AlertingEditor() {
-  const { config, updateAlerting, activeFileId, files } = usePrometheusStore()
+  const config = usePrometheusStore((s) => s.config)
+  const updateAlerting = usePrometheusStore((s) => s.updateAlerting)
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const files = usePrometheusStore((s) => s.files)
   const alerting = config.alerting || { alertmanagers: [] }
 
   const hasResolvedFile = Boolean(

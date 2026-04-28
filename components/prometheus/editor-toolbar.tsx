@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { usePrometheusStore } from "@/lib/prometheus-store"
@@ -17,20 +17,18 @@ import {
 } from "@/components/ui/tooltip"
 
 export function EditorToolbar() {
-  const {
-    activeFileId,
-    files,
-    validationErrors,
-    validateConfigAsync,
-    saveActiveFile,
-    exportYaml,
-    originalYaml,
-    isValidating,
-    isSaving,
-    flushEditorYamlToStore,
-    clearResumeAfterSave,
-    saveDiffRequestNonce,
-  } = usePrometheusStore()
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const files = usePrometheusStore((s) => s.files)
+  const validationErrors = usePrometheusStore((s) => s.validationErrors)
+  const originalYaml = usePrometheusStore((s) => s.originalYaml)
+  const isValidating = usePrometheusStore((s) => s.isValidating)
+  const isSaving = usePrometheusStore((s) => s.isSaving)
+  const saveDiffRequestNonce = usePrometheusStore((s) => s.saveDiffRequestNonce)
+
+  const validateConfigAsync = usePrometheusStore((s) => s.validateConfigAsync)
+  const saveActiveFile = usePrometheusStore((s) => s.saveActiveFile)
+  const flushEditorYamlToStore = usePrometheusStore((s) => s.flushEditorYamlToStore)
+  const clearResumeAfterSave = usePrometheusStore((s) => s.clearResumeAfterSave)
 
   const yamlTouchCounter = usePrometheusStore((s) => s.yamlTouchCounter)
   const scrapeConfigs = usePrometheusStore((s) => s.scrapeConfigs)
@@ -38,6 +36,10 @@ export function EditorToolbar() {
 
   const [showSaveDiff, setShowSaveDiff] = useState(false)
   const [saveError, setSaveError] = useState("")
+  const [diffYamls, setDiffYamls] = useState<{ before: string; after: string }>({
+    before: "",
+    after: "",
+  })
   const lastNonce = useRef(0)
 
   const resolvedFile =
@@ -52,9 +54,18 @@ export function EditorToolbar() {
   )
 
   // Never call `hasUnsavedYamlChanges()` (flush → zustand set) during render — it triggers React error boundaries.
-  useLayoutEffect(() => {
+  // useEffect (not useLayoutEffect) — peekUnsavedYaml does YAML.parse twice, so we don't want it blocking paint.
+  useEffect(() => {
     setHasUnsaved(usePrometheusStore.getState().peekUnsavedYaml())
   }, [yamlTouchCounter, originalYaml, activeFileId, scrapeConfigs, config])
+
+  const openSaveDialog = () => {
+    flushEditorYamlToStore?.()
+    const s = usePrometheusStore.getState()
+    setDiffYamls({ before: s.originalYaml, after: s.exportYaml() })
+    setSaveError("")
+    setShowSaveDiff(true)
+  }
 
   const canSave =
     Boolean(resolvedFile) &&
@@ -65,11 +76,12 @@ export function EditorToolbar() {
   useEffect(() => {
     if (saveDiffRequestNonce > 0 && saveDiffRequestNonce !== lastNonce.current) {
       lastNonce.current = saveDiffRequestNonce
-      flushEditorYamlToStore?.()
-      setSaveError("")
-      setShowSaveDiff(true)
+      openSaveDialog()
     }
-  }, [saveDiffRequestNonce, flushEditorYamlToStore])
+    // openSaveDialog intentionally omitted — re-creating it each render would
+    // make this effect fire every render. We only want to react to the nonce.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveDiffRequestNonce])
 
   const handleValidate = async () => {
     const errs = await validateConfigAsync()
@@ -135,11 +147,7 @@ export function EditorToolbar() {
               <Button
                 size="sm"
                 disabled={!canSave}
-                onClick={() => {
-                  flushEditorYamlToStore?.()
-                  setSaveError("")
-                  setShowSaveDiff(true)
-                }}
+                onClick={openSaveDialog}
               >
                 {isSaving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -161,8 +169,8 @@ export function EditorToolbar() {
           if (!open) setSaveError("")
         }}
         onClose={() => clearResumeAfterSave()}
-        beforeYaml={originalYaml}
-        afterYaml={exportYaml()}
+        beforeYaml={diffYamls.before}
+        afterYaml={diffYamls.after}
         saveError={saveError}
         onConfirm={handleSaveConfirm}
       />

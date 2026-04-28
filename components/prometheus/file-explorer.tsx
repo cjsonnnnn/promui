@@ -81,23 +81,24 @@ interface FileExplorerProps {
 }
 
 export function FileExplorer({ onCollapse }: FileExplorerProps) {
-  const {
-    files,
-    activeFileId,
-    configDirectoryDisplay,
-    refreshFiles,
-    setActiveFile,
-    deleteFile,
-    createNewFile,
-    uploadYamlFile,
-    renameFile,
-    duplicateFile,
-    saveYamlToDisk,
-    ensureInitialHistorySnapshot,
-    flushEditorYamlToStore,
-    discardUnsavedChanges,
-    hasUnsavedYamlChanges,
-  } = usePrometheusStore()
+  const files = usePrometheusStore((s) => s.files)
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const configDirectoryDisplay = usePrometheusStore((s) => s.configDirectoryDisplay)
+
+  const refreshFiles = usePrometheusStore((s) => s.refreshFiles)
+  const setActiveFile = usePrometheusStore((s) => s.setActiveFile)
+  const deleteFile = usePrometheusStore((s) => s.deleteFile)
+  const createNewFile = usePrometheusStore((s) => s.createNewFile)
+  const uploadYamlFile = usePrometheusStore((s) => s.uploadYamlFile)
+  const renameFile = usePrometheusStore((s) => s.renameFile)
+  const duplicateFile = usePrometheusStore((s) => s.duplicateFile)
+  const saveYamlToDisk = usePrometheusStore((s) => s.saveYamlToDisk)
+  const ensureInitialHistorySnapshot = usePrometheusStore(
+    (s) => s.ensureInitialHistorySnapshot
+  )
+  const flushEditorYamlToStore = usePrometheusStore((s) => s.flushEditorYamlToStore)
+  const discardUnsavedChanges = usePrometheusStore((s) => s.discardUnsavedChanges)
+  const hasUnsavedYamlChanges = usePrometheusStore((s) => s.hasUnsavedYamlChanges)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isNewFileOpen, setIsNewFileOpen] = useState(false)

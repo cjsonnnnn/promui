@@ -24,8 +24,12 @@ import {
 import { cn } from '@/lib/utils'
 
 export function RemoteWriteEditor() {
-  const { config, addRemoteWrite, updateRemoteWrite, deleteRemoteWrite, activeFileId, files } =
-    usePrometheusStore()
+  const config = usePrometheusStore((s) => s.config)
+  const addRemoteWrite = usePrometheusStore((s) => s.addRemoteWrite)
+  const updateRemoteWrite = usePrometheusStore((s) => s.updateRemoteWrite)
+  const deleteRemoteWrite = usePrometheusStore((s) => s.deleteRemoteWrite)
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const files = usePrometheusStore((s) => s.files)
   const remoteWrites = config.remote_write || []
 
   const hasResolvedFile = Boolean(

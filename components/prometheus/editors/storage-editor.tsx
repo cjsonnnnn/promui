@@ -7,7 +7,10 @@ import { Database } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function StorageEditor() {
-  const { config, updateStorage, activeFileId, files } = usePrometheusStore()
+  const config = usePrometheusStore((s) => s.config)
+  const updateStorage = usePrometheusStore((s) => s.updateStorage)
+  const activeFileId = usePrometheusStore((s) => s.activeFileId)
+  const files = usePrometheusStore((s) => s.files)
   const storage = config.storage || {}
 
   const hasResolvedFile = Boolean(
