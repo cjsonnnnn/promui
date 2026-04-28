@@ -49,6 +49,10 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
   const applyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeFileIdRef = useRef<string | null>(activeFileId)
+  // Frozen at editor mount time — identifies which file THIS Monaco instance
+  // was created for. Used by blur/onChange/flush callbacks to detect when they
+  // belong to a stale editor (one that was mounted for a different file).
+  const mountedForFileRef = useRef<string | null>(null)
   // setValue() triggers onChange; this flag tells onChange that the change
   // came from the store (not a user edit), so we don't re-hydrate or mark dirty.
   const programmaticChangeRef = useRef(false)
@@ -85,10 +89,17 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     }, 200)
   }, [])
 
-  // Reset pending timers when the active file changes; capture identity for
-  // any in-flight onChange handlers.
+  // Update activeFileIdRef SYNCHRONOUSLY during render so it's current before
+  // React's commit phase. This is critical: when the key changes on the Editor,
+  // the old editor unmounts during commit and fires onDidBlurEditorWidget.
+  // If activeFileIdRef still holds the old value at that point, the guard
+  // (mountedForFileRef !== activeFileIdRef) won't catch the stale blur, and
+  // the old editor's content overwrites the freshly-loaded config.
+  // useEffect runs AFTER commit, so updating there is too late.
+  activeFileIdRef.current = activeFileId
+
+  // Cancel pending timers when the active file changes.
   useEffect(() => {
-    activeFileIdRef.current = activeFileId
     cancelPendingTimers()
   }, [activeFileId, cancelPendingTimers])
 
@@ -96,6 +107,11 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     setFlushEditorYamlToStore(() => {
       const ed = editorRef.current
       if (!ed) return
+      // Don't flush stale editor content into the store after a file switch.
+      // mountedForFileRef captures which file THIS editor was created for;
+      // if it doesn't match the current active file, flushing would overwrite
+      // the freshly-loaded config with content from the old file.
+      if (mountedForFileRef.current !== activeFileIdRef.current) return
       // A flush represents intent to apply the editor's current value RIGHT NOW
       // for the file currently open. Cancel any pending debounce since this
       // supersedes it.
@@ -125,17 +141,22 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     // mounted for, regardless of the order between this onMount and the
     // useEffect that watches activeFileId.
     activeFileIdRef.current = activeFileId
+    // Freeze the file ID this editor instance was created for. All callbacks
+    // (blur, onChange, flush) compare this against activeFileIdRef.current to
+    // detect when they belong to a stale editor that's being destroyed.
+    mountedForFileRef.current = activeFileId
     editor.onDidFocusEditorWidget(() => {
       editorFocusedRef.current = true
     })
     editor.onDidBlurEditorWidget(() => {
       editorFocusedRef.current = false
-      // Apply on blur for the currently-active file. If the file changed
-      // mid-blur (rare), drop the value.
-      const fileAtBlur = activeFileIdRef.current
+      // Apply on blur only if this editor is still for the active file.
+      // When switching files, the old editor fires blur AFTER the new
+      // activeFileId is set, so mountedForFileRef != activeFileIdRef
+      // correctly prevents stale content from overwriting the new config.
       const value = editor.getValue()
       cancelPendingTimers()
-      if (fileAtBlur !== activeFileIdRef.current) return
+      if (mountedForFileRef.current !== activeFileIdRef.current) return
       hydrateFromYaml(value)
     })
     const initial = exportYaml()
@@ -354,7 +375,9 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
               // Programmatic setValue (initial mount, store→editor sync) must
               // not be treated as a user edit — it's already store state.
               if (programmaticChangeRef.current) return
-              const fileId = activeFileIdRef.current
+              // Use mountedForFileRef (frozen at mount) not activeFileIdRef
+              // (which may already point to a new file during transitions).
+              const fileId = mountedForFileRef.current
               scheduleTouch(fileId)
               scheduleApply(value, fileId)
             }}

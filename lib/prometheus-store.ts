@@ -424,6 +424,11 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       yamlTouchCounter: 0,
       touchYamlFromEditor: () => set((s) => ({ yamlTouchCounter: s.yamlTouchCounter + 1 })),
       peekUnsavedYaml: () => {
+        // No active file → no unsaved changes by definition.
+        // Without this guard, exportYaml() produces the default config (non-empty)
+        // while originalYaml is '' from editorResetPatch(), causing a false positive
+        // that shows the "Unsaved changes" dialog after file deletion or on first load.
+        if (!get().activeFileId) return false
         const cur = canonicalYamlFingerprint(get().exportYaml())
         const sav = canonicalYamlFingerprint(get().originalYaml)
         return cur !== sav
@@ -787,7 +792,14 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           // single set so subscribers never observe an intermediate state where
           // config has updated but originalYaml still points at the previous
           // file (which would briefly mark the editor dirty for no reason).
-          const originalYaml = exportYamlFromState(config, scrapeConfigs)
+          //
+          // Use the raw file content as the originalYaml baseline — NOT a
+          // re-serialized version. peekUnsavedYaml() compares both sides via
+          // canonicalYamlFingerprint (parse → sort keys → JSON.stringify), so
+          // formatting differences between the raw file and our serializer are
+          // normalised at comparison time and never produce false positives.
+          // This also means the Save dialog diff shows the actual on-disk state.
+          const originalYaml = content
           set({
             activeFileId: id,
             config,

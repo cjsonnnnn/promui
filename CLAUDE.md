@@ -52,3 +52,40 @@ Scrape jobs are organized into named groups using `# ===== GroupName =====` comm
 ### Validation
 
 Validation runs on every store mutation via `validateConfig()`. It checks Prometheus-specific rules: duration format (`\d+(ms|s|m|h|d|w|y)`), `host:port` target format, duplicate job names, and required fields. Errors surface in `validationErrors` state and are displayed inline in the editors.
+
+## Unsaved Changes Feature
+
+### Status: Fixed (2026-04-29)
+
+**How dirty detection works:**
+1. `originalYaml` — the save baseline, set when a file is loaded from disk
+2. `peekUnsavedYaml()` — compares `canonicalYamlFingerprint(exportYaml())` vs `canonicalYamlFingerprint(originalYaml)`
+3. `canonicalYamlFingerprint()` — parses YAML, strips empty arrays/objects/nulls, sorts keys, JSON.stringify — so formatting differences never produce false positives
+4. `yamlTouchCounter` — bumped by Monaco user edits (debounced) and on file load, triggers the `hasUnsaved` effect in the toolbar
+
+**Root causes of the bug (both fixed):**
+
+1. **`originalYaml` was set from `exportYamlFromState()`** (re-serialized) instead of the raw file content. When both sides go through the serializer, this was fine — but the serializer strips empty arrays (`rule_files: []`, `scrape_configs: []`), creating a structural mismatch with files that contain those keys explicitly. **Fix:** `setActiveFile()` now sets `originalYaml = content` (raw disk bytes). `lib/prometheus-store.ts` ~line 790.
+
+2. **`canonicalYamlFingerprint()` didn't strip empty arrays** before fingerprinting. A raw file with `rule_files: []` produced a different fingerprint than the serializer output (which omits `rule_files`). **Fix:** Replaced `sortKeysDeep()` with `normaliseDeep()` in `lib/yaml-canonical.ts`, which strips `undefined`, `null`, empty arrays `[]`, and empty objects `{}` — mirroring the `exportYamlFromState` JSON.stringify replacer behavior.
+
+3. **Monaco blur event race condition**. Switching files unmounts the old editor and mounts a new one. During unmount, the old editor fires `onDidBlurEditorWidget`, which calls `hydrateFromYaml()` to flush the editor's contents to the store. Because this happened *during the commit phase* (after the store was updated with the new file's content but before `useEffect`s could update tracking refs), it flushed the **stale old file's content** into the store, overwriting the new file's configuration. **Fix:** Added `mountedForFileRef` (frozen at editor mount time) to track which file an editor instance belongs to, and updated `activeFileIdRef` *synchronously during render* instead of in a `useEffect`. The blur handler now checks `if (mountedForFileRef.current !== activeFileIdRef.current) return`, safely dropping stale blur events.
+
+**Key invariant:** Both sides of `peekUnsavedYaml()` must go through the same normalization pipeline. `normaliseDeep()` ensures this regardless of whether `originalYaml` is raw file content or re-serialized output.
+
+**Files changed:**
+- `lib/prometheus-store.ts` — `setActiveFile()`: `originalYaml = content` instead of `exportYamlFromState(config, scrapeConfigs)`
+- `lib/yaml-canonical.ts` — `canonicalYamlFingerprint()`: uses `normaliseDeep()` instead of `sortKeysDeep()`
+- `components/prometheus/yaml-preview.tsx` — Synchronous `activeFileIdRef` update and `mountedForFileRef` stale blur guard
+
+**Verified behaviors:**
+- Load file → Save button disabled (no false positive on initial load)
+- Edit field → Save button enables
+- Switch file with unsaved changes → dialog appears
+- Keep → stays on file, dirty preserved
+- Discard → file switches, dirty clears
+- Edit → revert to original → Save button disables
+- Rapid file switching → no false positives
+- Monaco YAML direct edit → dirty shows after ~200ms debounce
+- Save → dirty clears immediately
+
