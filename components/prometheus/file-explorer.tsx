@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { usePrometheusStore } from "@/lib/prometheus-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -80,6 +80,23 @@ interface FileExplorerProps {
   onCollapse?: () => void
 }
 
+/** Trim and append `.yml` when no extension was supplied. Empty input → ''. */
+function normalizeFilename(raw: string): string {
+  const t = raw.trim()
+  if (!t) return ""
+  if (/\.(yml|yaml)$/i.test(t)) return t
+  return `${t}.yml`
+}
+
+function describeFilenameError(raw: string): string {
+  const t = raw.trim()
+  if (!t) return "Filename is required"
+  if (t.includes("/") || t.includes("\\")) return "Filename must not contain slashes"
+  const normalized = normalizeFilename(t)
+  if (normalized === ".yml" || normalized === ".yaml") return "Filename is required"
+  return ""
+}
+
 export function FileExplorer({ onCollapse }: FileExplorerProps) {
   const files = usePrometheusStore((s) => s.files)
   const activeFileId = usePrometheusStore((s) => s.activeFileId)
@@ -116,6 +133,10 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
   const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false)
   const pendingAfterUnsavedRef = useRef<(() => Promise<void>) | null>(null)
 
+  const newFilenamePreview = useMemo(() => normalizeFilename(newFilename), [newFilename])
+  const renamePreview = useMemo(() => normalizeFilename(renameValue), [renameValue])
+  const duplicatePreview = useMemo(() => normalizeFilename(duplicateValue), [duplicateValue])
+
   const runWithUnsavedCheck = async (action: () => Promise<void>) => {
     flushEditorYamlToStore?.()
     if (!hasUnsavedYamlChanges()) {
@@ -136,15 +157,12 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
   }
 
   const tryCreate = async () => {
-    const name = newFilename.trim()
-    if (!name) {
-      setErrorMessage("Filename is required")
+    const validationError = describeFilenameError(newFilename)
+    if (validationError) {
+      setErrorMessage(validationError)
       return
     }
-    if (!/\.(yml|yaml)$/i.test(name)) {
-      setErrorMessage("Filename must end with .yml or .yaml")
-      return
-    }
+    const name = normalizeFilename(newFilename)
     const result = await createNewFile(name)
     if (result.conflict) {
       setConflict({ kind: "new", filename: name })
@@ -203,7 +221,12 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
 
   const handleRename = async () => {
     if (!renameTarget) return
-    const result = await renameFile(renameTarget, renameValue.trim())
+    const validationError = describeFilenameError(renameValue)
+    if (validationError) {
+      setErrorMessage(validationError)
+      return
+    }
+    const result = await renameFile(renameTarget, normalizeFilename(renameValue))
     if (!result.success) {
       setErrorMessage(result.error || "Failed to rename file")
       return
@@ -215,7 +238,15 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
 
   const handleDuplicate = async () => {
     if (!duplicateTarget) return
-    const result = await duplicateFile(duplicateTarget, duplicateValue.trim())
+    const validationError = describeFilenameError(duplicateValue)
+    if (validationError) {
+      setErrorMessage(validationError)
+      return
+    }
+    const result = await duplicateFile(
+      duplicateTarget,
+      normalizeFilename(duplicateValue)
+    )
     if (!result.success) {
       setErrorMessage(result.error || "Failed to duplicate file")
       return
@@ -227,11 +258,12 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
 
   const handleConflictRename = async () => {
     if (!conflict) return
-    const next = conflictRename.trim()
-    if (!next || !/\.(yml|yaml)$/i.test(next)) {
-      setConflictError("Filename must end with .yml or .yaml")
+    const validationError = describeFilenameError(conflictRename)
+    if (validationError) {
+      setConflictError(validationError)
       return
     }
+    const next = normalizeFilename(conflictRename)
     if (next === conflict.filename) {
       setConflictError("Choose a different filename")
       return
@@ -443,7 +475,7 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
                 setUnsavedDialogOpen(false)
               }}
             >
-              Cancel
+              Keep
             </Button>
             <Button
               variant="secondary"
@@ -462,14 +494,38 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isNewFileOpen} onOpenChange={setIsNewFileOpen}>
+      <Dialog
+        open={isNewFileOpen}
+        onOpenChange={(open) => {
+          setIsNewFileOpen(open)
+          if (!open) {
+            setNewFilename("")
+            setErrorMessage("")
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create New YAML File</DialogTitle>
-            <DialogDescription>Enter a filename with `.yml` or `.yaml`.</DialogDescription>
+            <DialogDescription>
+              Enter a name. The <span className="font-mono">.yml</span> extension is added automatically if you omit it.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <Input value={newFilename} onChange={(e) => setNewFilename(e.target.value)} placeholder="prometheus.yml" />
+          <div className="space-y-2 py-4">
+            <Input
+              value={newFilename}
+              onChange={(e) => setNewFilename(e.target.value)}
+              placeholder="prometheus"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void tryCreate()
+              }}
+            />
+            {newFilename.trim() && newFilenamePreview && (
+              <p className="text-xs text-muted-foreground">
+                Will be saved as <span className="font-mono">{newFilenamePreview}</span>
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsNewFileOpen(false)}>
@@ -498,7 +554,7 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
           </DialogHeader>
           <div className="space-y-2 py-2">
             <label className="text-xs font-medium text-muted-foreground">New filename</label>
-            <Input value={conflictRename} onChange={(e) => setConflictRename(e.target.value)} placeholder="my-config.yml" />
+            <Input value={conflictRename} onChange={(e) => setConflictRename(e.target.value)} placeholder="my-config" />
             {conflictError && <p className="text-xs text-destructive">{conflictError}</p>}
           </div>
           <DialogFooter className="flex flex-wrap gap-2">
@@ -512,13 +568,34 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!renameTarget} onOpenChange={() => setRenameTarget(null)}>
+      <Dialog
+        open={!!renameTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRenameTarget(null)
+            setRenameValue("")
+            setErrorMessage("")
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Rename File</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
-            <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
+          <div className="space-y-2 py-4">
+            <Input
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleRename()
+              }}
+            />
+            {renameValue.trim() && renamePreview && renamePreview !== renameValue.trim() && (
+              <p className="text-xs text-muted-foreground">
+                Will be saved as <span className="font-mono">{renamePreview}</span>
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRenameTarget(null)}>
@@ -529,7 +606,16 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!duplicateTarget} onOpenChange={() => setDuplicateTarget(null)}>
+      <Dialog
+        open={!!duplicateTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDuplicateTarget(null)
+            setDuplicateValue("")
+            setErrorMessage("")
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Duplicate File</DialogTitle>
@@ -537,12 +623,21 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
               Create a copy of this file with a new name. Version history will not be copied.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <Input 
-              value={duplicateValue} 
-              onChange={(e) => setDuplicateValue(e.target.value)} 
-              placeholder="new-filename.yaml"
+          <div className="space-y-2 py-4">
+            <Input
+              value={duplicateValue}
+              onChange={(e) => setDuplicateValue(e.target.value)}
+              placeholder="new-filename"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleDuplicate()
+              }}
             />
+            {duplicateValue.trim() && duplicatePreview && duplicatePreview !== duplicateValue.trim() && (
+              <p className="text-xs text-muted-foreground">
+                Will be saved as <span className="font-mono">{duplicatePreview}</span>
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDuplicateTarget(null)}>

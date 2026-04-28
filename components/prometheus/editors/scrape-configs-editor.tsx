@@ -12,10 +12,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -245,20 +243,27 @@ export function ScrapeConfigsEditor() {
     }))
   }, [jobsAfterGroupFilter, metaGroups, groupKeyOrder, sortBy])
 
-  // Group jobs by their explicit scrape_group value (NOT by prefix)
-  // This ensures UI grouping always matches YAML output grouping
+  // Prefix View groups by job_name prefix (alphanumeric chars before the
+  // first dash) rather than scrape_group, giving the user a second way to
+  // visualize their jobs that's independent of YAML group markers.
   const groupedJobs = useMemo(() => {
     if (!showGroupView) return null
+    const sortedJobs = [...jobsAfterGroupFilter]
+    if (sortBy === 'name_asc') {
+      sortedJobs.sort((a, b) => (a.job_name || '').localeCompare(b.job_name || ''))
+    } else if (sortBy === 'name_desc') {
+      sortedJobs.sort((a, b) => (b.job_name || '').localeCompare(a.job_name || ''))
+    }
     const groups = new Map<string, ScrapeConfig[]>()
-    jobsAfterGroupFilter.forEach((job) => {
-      // Use explicit job.scrape_group as source of truth
-      const groupKey = canonicalScrapeGroup(job.scrape_group)
-      const existing = groups.get(groupKey) || []
+    sortedJobs.forEach((job) => {
+      const match = (job.job_name || '').match(/^([a-zA-Z0-9]+)-/)
+      const prefix = match ? match[1] : 'other'
+      const existing = groups.get(prefix) || []
       existing.push(job)
-      groups.set(groupKey, existing)
+      groups.set(prefix, existing)
     })
     return groups
-  }, [showGroupView, jobsAfterGroupFilter])
+  }, [showGroupView, jobsAfterGroupFilter, sortBy])
 
   const prefixEntries = useMemo(() => {
     if (!groupedJobs) return [] as [string, ScrapeConfig[]][]
@@ -368,51 +373,48 @@ export function ScrapeConfigsEditor() {
               Actions
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {/* Sort Menu - All sorting options in one place */}
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger disabled={isDisabled}>
-                <ArrowUpDown className="mr-2 h-4 w-4" />
-                Sort
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent 
-                className="z-50 min-w-[200px]" 
-                sideOffset={4} 
-                alignOffset={-5}
-                avoidCollisions={true}
-                collisionPadding={8}
-              >
-                <DropdownMenuItem onClick={() => toggleSortBy()} disabled={isDisabled}>
-                  {sortBy === 'name_asc' ? (
-                    <><ArrowUp className="mr-2 h-4 w-4" /> Job Name (A–Z)</>
-                  ) : sortBy === 'name_desc' ? (
-                    <><ArrowDown className="mr-2 h-4 w-4" /> Job Name (Z–A)</>
-                  ) : (
-                    <><ArrowUpDown className="mr-2 h-4 w-4" /> Job Name</>
-                  )}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => toggleTargetsSort()} disabled={isDisabled}>
-                  {targetsSort === 'asc' ? (
-                    <><ArrowUp className="mr-2 h-4 w-4" /> Targets (A–Z)</>
-                  ) : targetsSort === 'desc' ? (
-                    <><ArrowDown className="mr-2 h-4 w-4" /> Targets (Z–A)</>
-                  ) : (
-                    <><ArrowUpDown className="mr-2 h-4 w-4" /> Targets</>
-                  )}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setGroupKeyOrder(groupKeyOrder === 'asc' ? 'desc' : groupKeyOrder === 'desc' ? 'stable' : 'asc')} disabled={isDisabled}>
-                  {groupKeyOrder === 'asc' ? (
-                    <><ArrowUp className="mr-2 h-4 w-4" /> Group Name (A–Z)</>
-                  ) : groupKeyOrder === 'desc' ? (
-                    <><ArrowDown className="mr-2 h-4 w-4" /> Group Name (Z–A)</>
-                  ) : groupKeyOrder === 'stable' ? (
-                    <><AlignJustify className="mr-2 h-4 w-4" /> File Order</>
-                  ) : (
-                    <><ArrowUpDown className="mr-2 h-4 w-4" /> Group Order</>
-                  )}
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+          <DropdownMenuContent align="end" className="min-w-[220px]">
+            <DropdownMenuLabel className="text-xs text-muted-foreground">
+              Sort
+            </DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => toggleSortBy()} disabled={isDisabled}>
+              {sortBy === 'name_asc' ? (
+                <><ArrowUp className="mr-2 h-4 w-4" /> Job Name (A–Z)</>
+              ) : sortBy === 'name_desc' ? (
+                <><ArrowDown className="mr-2 h-4 w-4" /> Job Name (Z–A)</>
+              ) : (
+                <><ArrowUpDown className="mr-2 h-4 w-4" /> Sort by Job Name</>
+              )}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => toggleTargetsSort()} disabled={isDisabled}>
+              {targetsSort === 'asc' ? (
+                <><ArrowUp className="mr-2 h-4 w-4" /> Targets (low → high)</>
+              ) : targetsSort === 'desc' ? (
+                <><ArrowDown className="mr-2 h-4 w-4" /> Targets (high → low)</>
+              ) : (
+                <><ArrowUpDown className="mr-2 h-4 w-4" /> Sort Targets by IP</>
+              )}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                setGroupKeyOrder(
+                  groupKeyOrder === 'stable'
+                    ? 'asc'
+                    : groupKeyOrder === 'asc'
+                    ? 'desc'
+                    : 'stable'
+                )
+              }
+              disabled={isDisabled}
+            >
+              {groupKeyOrder === 'asc' ? (
+                <><ArrowUp className="mr-2 h-4 w-4" /> Groups (A–Z)</>
+              ) : groupKeyOrder === 'desc' ? (
+                <><ArrowDown className="mr-2 h-4 w-4" /> Groups (Z–A)</>
+              ) : (
+                <><AlignJustify className="mr-2 h-4 w-4" /> Groups: File Order</>
+              )}
+            </DropdownMenuItem>
 
             <DropdownMenuSeparator />
 

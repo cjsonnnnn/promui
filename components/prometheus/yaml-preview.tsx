@@ -16,19 +16,6 @@ import {
 
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false })
 
-function useDebouncedCallback<T extends (...args: string[]) => void>(fn: T, ms: number) {
-  const t = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const f = useRef(fn)
-  f.current = fn
-  return useCallback(
-    (...args: Parameters<T>) => {
-      if (t.current) clearTimeout(t.current)
-      t.current = setTimeout(() => f.current(...args), ms)
-    },
-    [ms]
-  ) as T
-}
-
 interface YamlPreviewProps {
   onCollapse?: () => void
 }
@@ -57,32 +44,71 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const editorFocusedRef = useRef(false)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
+  // Per-file timer + identity. Pending timers must NEVER fire after switching
+  // files — that's how prometheus.yml content was leaking into other files.
+  const applyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const activeFileIdRef = useRef<string | null>(activeFileId)
+  // setValue() triggers onChange; this flag tells onChange that the change
+  // came from the store (not a user edit), so we don't re-hydrate or mark dirty.
+  const programmaticChangeRef = useRef(false)
   const [copied, setCopied] = useState(false)
   const [lineCount, setLineCount] = useState(1)
 
-  const debouncedApply = useDebouncedCallback((value: string) => {
-    hydrateFromYaml(value)
-  }, 400)
+  const cancelPendingTimers = useCallback(() => {
+    if (applyTimerRef.current !== null) {
+      clearTimeout(applyTimerRef.current)
+      applyTimerRef.current = null
+    }
+    if (touchTimerRef.current !== null) {
+      clearTimeout(touchTimerRef.current)
+      touchTimerRef.current = null
+    }
+  }, [])
 
-  const debouncedTouch = useDebouncedCallback(() => {
-    usePrometheusStore.getState().touchYamlFromEditor()
-  }, 200)
+  const scheduleApply = useCallback((value: string, fileId: string | null) => {
+    if (applyTimerRef.current !== null) clearTimeout(applyTimerRef.current)
+    applyTimerRef.current = setTimeout(() => {
+      applyTimerRef.current = null
+      // Drop stale apply if the user switched files while debouncing.
+      if (activeFileIdRef.current !== fileId) return
+      hydrateFromYaml(value)
+    }, 400)
+  }, [hydrateFromYaml])
 
-  const flushYaml = (value: string) => {
-    hydrateFromYaml(value)
-  }
+  const scheduleTouch = useCallback((fileId: string | null) => {
+    if (touchTimerRef.current !== null) clearTimeout(touchTimerRef.current)
+    touchTimerRef.current = setTimeout(() => {
+      touchTimerRef.current = null
+      if (activeFileIdRef.current !== fileId) return
+      usePrometheusStore.getState().touchYamlFromEditor()
+    }, 200)
+  }, [])
+
+  // Reset pending timers when the active file changes; capture identity for
+  // any in-flight onChange handlers.
+  useEffect(() => {
+    activeFileIdRef.current = activeFileId
+    cancelPendingTimers()
+  }, [activeFileId, cancelPendingTimers])
 
   useEffect(() => {
     setFlushEditorYamlToStore(() => {
       const ed = editorRef.current
-      if (ed) usePrometheusStore.getState().hydrateFromYaml(ed.getValue())
+      if (!ed) return
+      // A flush represents intent to apply the editor's current value RIGHT NOW
+      // for the file currently open. Cancel any pending debounce since this
+      // supersedes it.
+      cancelPendingTimers()
+      usePrometheusStore.getState().hydrateFromYaml(ed.getValue())
     })
     return () => setFlushEditorYamlToStore(null)
-  }, [setFlushEditorYamlToStore])
+  }, [setFlushEditorYamlToStore, cancelPendingTimers])
 
   // Cleanup editor and ResizeObserver on unmount
   useEffect(() => {
     return () => {
+      cancelPendingTimers()
       resizeObserverRef.current?.disconnect()
       resizeObserverRef.current = null
       const ed = editorRef.current
@@ -91,19 +117,31 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
         editorRef.current = null
       }
     }
-  }, [])
+  }, [cancelPendingTimers])
 
   const handleEditorMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
     editorRef.current = editor
+    // Ensure the per-file identity ref reflects the file this editor was
+    // mounted for, regardless of the order between this onMount and the
+    // useEffect that watches activeFileId.
+    activeFileIdRef.current = activeFileId
     editor.onDidFocusEditorWidget(() => {
       editorFocusedRef.current = true
     })
     editor.onDidBlurEditorWidget(() => {
       editorFocusedRef.current = false
-      flushYaml(editor.getValue())
+      // Apply on blur for the currently-active file. If the file changed
+      // mid-blur (rare), drop the value.
+      const fileAtBlur = activeFileIdRef.current
+      const value = editor.getValue()
+      cancelPendingTimers()
+      if (fileAtBlur !== activeFileIdRef.current) return
+      hydrateFromYaml(value)
     })
     const initial = exportYaml()
+    programmaticChangeRef.current = true
     editor.setValue(initial)
+    programmaticChangeRef.current = false
     setLineCount(initial.split("\n").length)
 
     // Replace automaticLayout with a debounced ResizeObserver that skips layout
@@ -139,12 +177,17 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     usePrometheusStore.getState().validateConfig()
   }, [hasResolvedFile, config, scrapeConfigs])
 
+  // Sync store → editor when state changes from non-editor sources (e.g. job
+  // modal, sort, group operations). Marked programmatic so the resulting
+  // onChange does not reschedule a pointless hydrate / dirty bump.
   useEffect(() => {
     if (!hasResolvedFile || !editorRef.current || editorFocusedRef.current) return
     const next = usePrometheusStore.getState().exportYaml()
     const cur = editorRef.current.getValue()
     if (cur !== next) {
+      programmaticChangeRef.current = true
       editorRef.current.setValue(next)
+      programmaticChangeRef.current = false
       setLineCount(next.split("\n").length)
     }
   }, [hasResolvedFile, config, scrapeConfigs])
@@ -306,11 +349,14 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
             path={`yaml-${activeFileId}`}
             onMount={handleEditorMount}
             onChange={(value) => {
-              if (value !== undefined) {
-                setLineCount(value.split("\n").length)
-                debouncedTouch()
-                debouncedApply(value)
-              }
+              if (value === undefined) return
+              setLineCount(value.split("\n").length)
+              // Programmatic setValue (initial mount, store→editor sync) must
+              // not be treated as a user edit — it's already store state.
+              if (programmaticChangeRef.current) return
+              const fileId = activeFileIdRef.current
+              scheduleTouch(fileId)
+              scheduleApply(value, fileId)
             }}
             options={{
               minimap: { enabled: true },

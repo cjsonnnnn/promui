@@ -162,6 +162,22 @@ interface PrometheusStore {
 
 const generateId = () => Math.random().toString(36).substring(2, 11)
 
+/** Trim and append `.yml` if no `.yml`/`.yaml` extension was provided. Empty → ''. */
+function normalizeYamlFilename(input: string | null | undefined): string {
+  const t = String(input ?? '').trim()
+  if (!t) return ''
+  if (/\.(yml|yaml)$/i.test(t)) return t
+  return `${t}.yml`
+}
+
+/** Reject characters that would break path resolution or look pathological. */
+function isValidFilenameBase(name: string): boolean {
+  if (!name) return false
+  if (name.includes('/') || name.includes('\\')) return false
+  if (name === '.yml' || name === '.yaml') return false
+  return true
+}
+
 const extractIp = (target: string): string => {
   const match = target.match(/^(\d+\.\d+\.\d+\.\d+)/)
   return match ? match[1] : target
@@ -332,6 +348,33 @@ function scrapeListEqual(a: ScrapeConfig[], b: ScrapeConfig[]): boolean {
     if (JSON.stringify(xRest) !== JSON.stringify(yRest)) return false
   }
   return true
+}
+
+/** Pure version of exportYaml so we can compute YAML before committing state. */
+function exportYamlFromState(
+  config: PrometheusConfig,
+  scrapeConfigs: ScrapeConfig[]
+): string {
+  const exportRest: PrometheusConfig = { ...config }
+  delete exportRest.meta
+  delete exportRest.scrape_configs
+  const cleanRest = JSON.parse(
+    JSON.stringify(exportRest, (_, v) =>
+      v === undefined || (Array.isArray(v) && v.length === 0) ? undefined : v
+    )
+  ) as Record<string, unknown>
+  const head =
+    Object.keys(cleanRest).length > 0
+      ? YAML.stringify(cleanRest, { indent: 2 }).trimEnd()
+      : ''
+  const scrapeInner = stringifyScrapeConfigsGrouped(
+    scrapeConfigs,
+    config.meta?.groups
+  )
+  const scrapeBlock =
+    scrapeInner.length > 0 ? `scrape_configs:\n${scrapeInner}` : 'scrape_configs: []'
+  if (!head) return `${scrapeBlock}\n`
+  return `${head}\n\n${scrapeBlock}\n`
 }
 
 const fromConfig = (config: PrometheusConfig, rawYaml?: string): ScrapeConfig[] => {
@@ -591,10 +634,10 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       },
 
       createNewFile: async (filename) => {
-        const t = filename.trim()
+        const t = normalizeYamlFilename(filename)
         if (!t) return { success: false, error: 'Filename is required' }
-        if (!/\.(yml|yaml)$/i.test(t)) {
-          return { success: false, error: 'Filename must end with .yml or .yaml' }
+        if (!isValidFilenameBase(t)) {
+          return { success: false, error: 'Filename contains invalid characters' }
         }
         if (await get().fileExists(t)) {
           return { success: false, conflict: true, error: 'File already exists' }
@@ -609,10 +652,10 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       },
 
       uploadYamlFile: async (filename, yaml) => {
-        const t = filename.trim()
+        const t = normalizeYamlFilename(filename)
         if (!t) return { success: false, error: 'Filename is required' }
-        if (!/\.(yml|yaml)$/i.test(t)) {
-          return { success: false, error: 'Filename must end with .yml or .yaml' }
+        if (!isValidFilenameBase(t)) {
+          return { success: false, error: 'Filename contains invalid characters' }
         }
         try {
           YAML.parse(yaml)
@@ -633,25 +676,33 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
       renameFile: async (id, nextName) => {
         const file = get().files.find((f) => f.id === id)
         if (!file) return { success: false, error: 'File not found' }
+        const target = normalizeYamlFilename(nextName)
+        if (!target) return { success: false, error: 'Filename is required' }
+        if (!isValidFilenameBase(target)) {
+          return { success: false, error: 'Filename contains invalid characters' }
+        }
+        if (target === file.filename) {
+          return { success: true }
+        }
         const response = await fetch('/api/config/rename', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: file.filename, to: nextName }),
+          body: JSON.stringify({ from: file.filename, to: target }),
         })
         const j = await parseApiResponse(response)
         if (!j.success) return { success: false, error: j.error || 'Failed to rename file' }
         await get().refreshFiles()
-        await get().setActiveFile(nextName.trim())
+        await get().setActiveFile(target)
         return { success: true }
       },
 
       duplicateFile: async (id, newName) => {
         const file = get().files.find((f) => f.id === id)
         if (!file) return { success: false, error: 'File not found' }
-        const t = newName.trim()
+        const t = normalizeYamlFilename(newName)
         if (!t) return { success: false, error: 'Filename is required' }
-        if (!/\.(yml|yaml)$/i.test(t)) {
-          return { success: false, error: 'Filename must end with .yml or .yaml' }
+        if (!isValidFilenameBase(t)) {
+          return { success: false, error: 'Filename contains invalid characters' }
         }
         if (await get().fileExists(t)) {
           return { success: false, error: 'File already exists' }
@@ -732,17 +783,22 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           const configBase = ensureValidConfigShape(parsed)
           const scrapeConfigs = fromConfig(configBase, content)
           const config = mergeMetaGroups({ ...configBase, meta: undefined }, scrapeConfigs)
+          // Commit activeFileId, config/scrapeConfigs, and originalYaml in a
+          // single set so subscribers never observe an intermediate state where
+          // config has updated but originalYaml still points at the previous
+          // file (which would briefly mark the editor dirty for no reason).
+          const originalYaml = exportYamlFromState(config, scrapeConfigs)
           set({
             activeFileId: id,
             config,
             scrapeConfigs,
+            originalYaml,
             undoStack: [],
             redoStack: [],
             yamlTouchCounter: get().yamlTouchCounter + 1,
             selectedJobs: new Set<string>(),
+            validationErrors: [],
           })
-          // Baseline must match canonical `exportYaml()` or the editor/UI looks "dirty" with no edits.
-          set({ originalYaml: get().exportYaml() })
           await get().loadHistoryForFile(id)
           get().validateConfig()
         } finally {
@@ -1276,26 +1332,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
 
       exportYaml: () => {
         const { config, scrapeConfigs } = get()
-        const exportRest: PrometheusConfig = { ...config }
-        delete exportRest.meta
-        delete exportRest.scrape_configs
-        const cleanRest = JSON.parse(
-          JSON.stringify(exportRest, (_, v) =>
-            v === undefined || (Array.isArray(v) && v.length === 0) ? undefined : v
-          )
-        ) as Record<string, unknown>
-        const head =
-          Object.keys(cleanRest).length > 0
-            ? YAML.stringify(cleanRest, { indent: 2 }).trimEnd()
-            : ''
-        const scrapeInner = stringifyScrapeConfigsGrouped(
-          scrapeConfigs,
-          config.meta?.groups
-        )
-        const scrapeBlock =
-          scrapeInner.length > 0 ? `scrape_configs:\n${scrapeInner}` : 'scrape_configs: []'
-        if (!head) return `${scrapeBlock}\n`
-        return `${head}\n\n${scrapeBlock}\n`
+        return exportYamlFromState(config, scrapeConfigs)
       },
 
       hydrateFromYaml: (yaml) => {
@@ -1435,18 +1472,34 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         })
 
         scrapeConfigs.forEach((job) => {
-          if (!job.job_name?.trim()) {
+          const hasName = !!job.job_name?.trim()
+          const statics = job.static_configs || []
+          const totalTargets = statics.reduce(
+            (n, sc) => n + (sc.targets?.length || 0),
+            0
+          )
+          // Validate job-level durations whenever set, regardless of completeness.
+          validateDuration(job.scrape_interval, 'scrape_interval', 'scrape_configs', job.job_name)
+          validateDuration(job.scrape_timeout, 'scrape_timeout', 'scrape_configs', job.job_name)
+
+          // A completely empty placeholder job is "in progress" — collapse the
+          // two would-be errors into one so we don't spam the user with "2
+          // issues" the moment they start typing a new job in the YAML editor.
+          if (!hasName && totalTargets === 0) {
+            errors.push({
+              type: 'missing_job_name',
+              message: 'A scrape job is incomplete (job_name and targets are empty)',
+              section: 'scrape_configs',
+            })
+            return
+          }
+          if (!hasName) {
             errors.push({
               type: 'missing_job_name',
               message: 'A scrape job is missing job_name',
               section: 'scrape_configs',
             })
           }
-          // Validate job-level durations
-          validateDuration(job.scrape_interval, 'scrape_interval', 'scrape_configs', job.job_name)
-          validateDuration(job.scrape_timeout, 'scrape_timeout', 'scrape_configs', job.job_name)
-          const statics = job.static_configs || []
-          const totalTargets = statics.reduce((n, sc) => n + (sc.targets?.length || 0), 0)
           if (totalTargets === 0) {
             errors.push({
               type: 'empty_targets',
