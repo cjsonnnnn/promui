@@ -600,7 +600,7 @@ export function ScrapeConfigsEditor() {
                     <div className="flex items-center gap-2">
                       <Checkbox
                         checked={allInGroupSelected ? true : someInGroupSelected ? 'indeterminate' : false}
-                        onCheckedChange={() => selectJobsInGroup(section.key)}
+                        onCheckedChange={() => handlePrefixSelection(section.jobs)}
                         onClick={(e) => e.stopPropagation()}
                         className="mr-1 border-2 border-border data-[state=checked]:border-primary data-[state=indeterminate]:border-primary"
                       />

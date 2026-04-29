@@ -194,10 +194,12 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
   // Map validation errors into Monaco editor markers
   useEffect(() => {
     if (!monacoInstance || !editorRef.current || !editorReady) return
-    const model = editorRef.current.getModel()
-    if (!model) return
+    
+    const applyMarkers = () => {
+      const model = editorRef.current?.getModel()
+      if (!model) return
 
-    const markers = validationErrors.map((error) => {
+      const markers = validationErrors.map((error) => {
       let startLineNumber = 1
       let endLineNumber = 1
       let startColumn = 1
@@ -206,56 +208,54 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
       const lines = model.getLinesContent()
       
       // Best-effort search to find the specific line
-      if (error.field || error.section) {
-        let searchStartIndex = 0
-        
-        // If it's scoped to a job, find the job first
-        if (error.jobName) {
-          const jobIdx = lines.findIndex(l => l.includes(`job_name: ${error.jobName}`) || l.includes(`job_name: "${error.jobName}"`) || l.includes(`job_name: '${error.jobName}'`))
-          if (jobIdx >= 0) searchStartIndex = jobIdx
-        } else if (error.section) {
-          // If it's scoped to a section (e.g., global), find that section
-          const sectionIdx = lines.findIndex(l => l.trim() === `${error.section}:`)
-          if (sectionIdx >= 0) searchStartIndex = sectionIdx
-        }
+      let searchStartIndex = 0
+      
+      // If it's scoped to a job, find the job first
+      if (error.jobName) {
+        const jobIdx = lines.findIndex(l => l.includes(`job_name: ${error.jobName}`) || l.includes(`job_name: "${error.jobName}"`) || l.includes(`job_name: '${error.jobName}'`))
+        if (jobIdx >= 0) searchStartIndex = jobIdx
+      } else if (error.section) {
+        // If it's scoped to a section (e.g., global), find that section
+        const sectionIdx = lines.findIndex(l => l.trim() === `${error.section}:`)
+        if (sectionIdx >= 0) searchStartIndex = sectionIdx
+      }
 
-        // Now find the field
-        if (error.field) {
-          for (let i = searchStartIndex; i < lines.length; i++) {
-            const line = lines[i]
-            const fieldMatch = line.indexOf(`${error.field}:`)
-            if (fieldMatch >= 0) {
-              startLineNumber = i + 1
-              endLineNumber = i + 1
-              const colonIndex = line.indexOf(':', fieldMatch)
-              let valStart = colonIndex + 1
-              while (valStart < line.length && (line[valStart] === ' ' || line[valStart] === '\t')) {
-                valStart++
-              }
-              startColumn = valStart + 1
-              endColumn = line.length + 1
-              break
+      // Now find the specific field or target
+      if (error.field) {
+        for (let i = searchStartIndex; i < lines.length; i++) {
+          const line = lines[i]
+          const fieldMatch = line.indexOf(`${error.field}:`)
+          if (fieldMatch >= 0) {
+            startLineNumber = i + 1
+            endLineNumber = i + 1
+            const colonIndex = line.indexOf(':', fieldMatch)
+            let valStart = colonIndex + 1
+            while (valStart < line.length && (line[valStart] === ' ' || line[valStart] === '\t')) {
+              valStart++
             }
+            startColumn = valStart + 1
+            endColumn = line.length + 1
+            break
           }
-        } else if (error.target) {
-          // If it's a target error, search for the target string
-          for (let i = searchStartIndex; i < lines.length; i++) {
-            const line = lines[i]
-            const targetIdx = line.indexOf(error.target)
-            if (targetIdx >= 0) {
-              startLineNumber = i + 1
-              endLineNumber = i + 1
-              startColumn = targetIdx + 1
-              endColumn = targetIdx + error.target.length + 1
-              break
-            }
-          }
-        } else if (searchStartIndex > 0) {
-          startLineNumber = searchStartIndex + 1
-          endLineNumber = searchStartIndex + 1
-          startColumn = lines[searchStartIndex].length - lines[searchStartIndex].trimStart().length + 1
-          endColumn = lines[searchStartIndex].length + 1
         }
+      } else if (error.target) {
+        // If it's a target error, search for the target string
+        for (let i = searchStartIndex; i < lines.length; i++) {
+          const line = lines[i]
+          const targetIdx = line.indexOf(error.target)
+          if (targetIdx >= 0) {
+            startLineNumber = i + 1
+            endLineNumber = i + 1
+            startColumn = targetIdx + 1
+            endColumn = targetIdx + error.target.length + 1
+            break
+          }
+        }
+      } else if (searchStartIndex > 0) {
+        startLineNumber = searchStartIndex + 1
+        endLineNumber = searchStartIndex + 1
+        startColumn = lines[searchStartIndex].length - lines[searchStartIndex].trimStart().length + 1
+        endColumn = lines[searchStartIndex].length + 1
       }
 
       return {
@@ -268,25 +268,33 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
       }
     })
 
-    monacoInstance.editor.setModelMarkers(model, "yaml-validation", markers)
+      monacoInstance.editor.setModelMarkers(model, "yaml-validation", markers)
+    }
+
+    applyMarkers()
+    
+    // Re-apply markers multiple times during initial load to beat any background worker overrides
+    const t1 = setTimeout(applyMarkers, 100)
+    const t2 = setTimeout(applyMarkers, 500)
+    const t3 = setTimeout(applyMarkers, 1000)
+
+    // Re-apply markers whenever text changes, to keep line mappings perfectly in sync
+    const contentDisposable = editorRef.current.onDidChangeModelContent(() => {
+      applyMarkers()
+    })
 
     return () => {
-      if (!model.isDisposed()) {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      clearTimeout(t3)
+      contentDisposable.dispose()
+      const model = editorRef.current?.getModel()
+      if (model && !model.isDisposed()) {
         monacoInstance.editor.setModelMarkers(model, "yaml-validation", [])
       }
     }
-  }, [monacoInstance, validationErrors, editorReady])
+  }, [monacoInstance, validationErrors, editorReady, activeFileId, scrapeConfigs])
 
-  // Re-run on actual config/scrapeConfigs ref changes. validateConfig is
-  // idempotent now (no-ops when validationErrors are equivalent).
-  useEffect(() => {
-    if (!hasResolvedFile) {
-      const cur = usePrometheusStore.getState().validationErrors
-      if (cur.length > 0) usePrometheusStore.setState({ validationErrors: [] })
-      return
-    }
-    usePrometheusStore.getState().validateConfig()
-  }, [hasResolvedFile, config, scrapeConfigs])
 
   // Sync store → editor when state changes from non-editor sources (e.g. job
   // modal, sort, group operations). Marked programmatic so the resulting
@@ -496,6 +504,7 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
               scrollBeyondLastLine: false,
               automaticLayout: false,
               tabSize: 2,
+              fixedOverflowWidgets: true,
             }}
           />
         )}

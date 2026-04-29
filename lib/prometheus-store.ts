@@ -377,10 +377,27 @@ function exportYamlFromState(
   return `${head}\n\n${scrapeBlock}\n`
 }
 
-const fromConfig = (config: PrometheusConfig, rawYaml?: string): ScrapeConfig[] => {
-  const arr = (config.scrape_configs || []).map((sc) =>
-    normalizeScrapeJobFromYaml(sc, generateId())
-  )
+const fromConfig = (
+  config: PrometheusConfig,
+  rawYaml?: string,
+  existingJobs?: ScrapeConfig[]
+): ScrapeConfig[] => {
+  const arr = (config.scrape_configs || []).map((sc, i) => {
+    let id: string | undefined
+    if (existingJobs) {
+      const jobName = (sc as any).job_name
+      if (jobName) {
+        const matches = existingJobs.filter((j) => j.job_name === jobName)
+        if (matches.length === 1) {
+          id = matches[0].id
+        }
+      }
+      if (!id && i < existingJobs.length) {
+        id = existingJobs[i].id
+      }
+    }
+    return normalizeScrapeJobFromYaml(sc, id || generateId())
+  })
   if (rawYaml) {
     const groups = extractJobGroupsFromRaw(rawYaml)
     arr.forEach((j, i) => {
@@ -786,7 +803,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           }
           delete (parsed as { meta?: unknown }).meta
           const configBase = ensureValidConfigShape(parsed)
-          const scrapeConfigs = fromConfig(configBase, content)
+          const scrapeConfigs = fromConfig(configBase, content, get().scrapeConfigs)
           const config = mergeMetaGroups({ ...configBase, meta: undefined }, scrapeConfigs)
           // Commit activeFileId, config/scrapeConfigs, and originalYaml in a
           // single set so subscribers never observe an intermediate state where
@@ -879,7 +896,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
 
       // Config actions
       setConfig: (config) => {
-        const scrapeConfigs = fromConfig(config)
+        const scrapeConfigs = fromConfig(config, undefined, get().scrapeConfigs)
         set({
           config: mergeMetaGroups({ ...config, meta: undefined }, scrapeConfigs),
           scrapeConfigs,
@@ -1102,9 +1119,14 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           const nextScrape = state.scrapeConfigs.map((job) =>
             ids.includes(job.id) ? { ...job, scrape_group: target } : job
           )
+          const curGroups = [...(state.config.meta?.groups || [])].map(canonicalScrapeGroup)
+          let configObj = state.config
+          if (target !== SCRAPE_GROUP_UNGROUPED && !curGroups.includes(target)) {
+            configObj = { ...configObj, meta: { groups: [...curGroups, target] } }
+          }
           return {
             scrapeConfigs: nextScrape,
-            config: mergeMetaGroups(state.config, nextScrape),
+            config: mergeMetaGroups(configObj, nextScrape),
             undoStack: [...state.undoStack, snapshot],
             redoStack: [],
             selectedJobs: new Set<string>(),
@@ -1312,7 +1334,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           const parsed = ensureValidConfigShape(YAML.parse(yamlString))
           delete (parsed as { meta?: unknown }).meta
           const configBase = ensureValidConfigShape(parsed)
-          const scrapeConfigs = fromConfig(configBase, yamlString)
+          const scrapeConfigs = fromConfig(configBase, yamlString, get().scrapeConfigs)
           const config = mergeMetaGroups({ ...configBase, meta: undefined }, scrapeConfigs)
 
           const newFile: ConfigFile = {
@@ -1361,7 +1383,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
           }
           delete (parsed as { meta?: unknown }).meta
           const configBase = ensureValidConfigShape(parsed)
-          const scrapeConfigs = fromConfig(configBase, yaml)
+          const scrapeConfigs = fromConfig(configBase, yaml, get().scrapeConfigs)
           const config = mergeMetaGroups({ ...configBase, meta: undefined }, scrapeConfigs)
 
           // Short-circuit when the parsed result is identical to current state.
@@ -1676,3 +1698,12 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         })
       },
 }))
+
+usePrometheusStore.subscribe((state, prevState) => {
+  if (
+    state.activeFileId &&
+    (state.config !== prevState.config || state.scrapeConfigs !== prevState.scrapeConfigs)
+  ) {
+    state.validateConfig()
+  }
+})
