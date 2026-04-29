@@ -12,7 +12,7 @@ npm run lint      # Run ESLint
 
 The dev script uses `--webpack` explicitly. Turbopack (Next.js 16's default) panics on this CPU due to missing BMI2 instruction support, which causes React to never hydrate — the UI renders visually from SSR but all interactions are broken.
 
-No test suite is configured. TypeScript strict mode is on, but `next.config.mjs` sets `typescript.ignoreBuildErrors: true`, so the build won't fail on type errors.
+Playwright browser tests live in `tests/e2e/`. Run them with `npx playwright test` (requires the dev server running or Playwright's `webServer` config will start it). TypeScript strict mode is on, but `next.config.mjs` sets `typescript.ignoreBuildErrors: true`, so the build won't fail on type errors.
 
 ## Architecture
 
@@ -52,6 +52,12 @@ Scrape jobs are organized into named groups using `# ===== GroupName =====` comm
 ### Validation
 
 Validation runs on every store mutation via `validateConfig()`. It checks Prometheus-specific rules: duration format (`\d+(ms|s|m|h|d|w|y)`), `host:port` target format, duplicate job names, and required fields. Errors surface in `validationErrors` state and are displayed inline in the editors.
+
+### Key UI behaviors
+
+**Prefix View** (`components/prometheus/editors/scrape-configs-editor.tsx`): Toggles between group-based and job-name-prefix-based views of scrape jobs. The button uses `variant="default"` (filled) when active and `variant="outline"` when inactive, with `aria-pressed` reflecting the state.
+
+**YAML formatting** (`components/prometheus/yaml-preview.tsx`): The YAML preview panel has a Format button (wand icon) and a Ctrl+S shortcut that only fires when the Monaco editor is focused. Formatting works by calling `hydrateFromYaml(currentValue)` then `exportYaml()` — this routes through the app's canonical serializer (`stringifyScrapeConfigsGrouped`) so group header comments are preserved. If the current YAML is syntactically invalid, a toast error is shown and the editor is unchanged. Ctrl+S outside the editor has no effect.
 
 ## Deployment
 

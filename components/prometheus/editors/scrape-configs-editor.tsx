@@ -320,11 +320,12 @@ export function ScrapeConfigsEditor() {
             <TooltipTrigger asChild>
               <span>
                 <Button
-                  variant="outline"
+                  variant={showGroupView ? "default" : "outline"}
                   size="sm"
-                  className={cn(showGroupView && "bg-accent")}
+                  aria-pressed={showGroupView}
                   onClick={() => setShowGroupView(!showGroupView)}
                   disabled={isDisabled}
+                  data-testid="prefix-view-btn"
                 >
                   <FolderTree className="mr-2 h-4 w-4" />
                   Prefix View

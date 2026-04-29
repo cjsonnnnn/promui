@@ -6,7 +6,7 @@ import type * as monaco from "monaco-editor"
 import { usePrometheusStore } from "@/lib/prometheus-store"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Copy, Check, AlertCircle, FileCode, Download, Loader2, PanelRightClose } from "lucide-react"
+import { Copy, Check, AlertCircle, FileCode, Download, Loader2, PanelRightClose, Wand2 } from "lucide-react"
 import { toast } from "sonner"
 import {
   Tooltip,
@@ -14,6 +14,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useMonaco } from "@monaco-editor/react"
+import YAML from "yaml"
 
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false })
 
@@ -62,6 +63,8 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
   const [copied, setCopied] = useState(false)
   const [lineCount, setLineCount] = useState(1)
 
+  const formatYamlRef = useRef<() => void>(() => {})
+
   const cancelPendingTimers = useCallback(() => {
     if (applyTimerRef.current !== null) {
       clearTimeout(applyTimerRef.current)
@@ -91,6 +94,28 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
       usePrometheusStore.getState().touchYamlFromEditor()
     }, 200)
   }, [])
+
+  const formatYaml = useCallback(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    const currentValue = editor.getValue()
+    try {
+      YAML.parse(currentValue)
+    } catch {
+      toast.error("Cannot format: invalid YAML")
+      return
+    }
+    // Sync to store then re-export canonical form (preserves group headers)
+    hydrateFromYaml(currentValue)
+    const formatted = exportYaml()
+    programmaticChangeRef.current = true
+    editor.setValue(formatted)
+    programmaticChangeRef.current = false
+    setLineCount(formatted.split("\n").length)
+  }, [hydrateFromYaml, exportYaml])
+
+  // Keep ref current so Monaco's addCommand closure never goes stale
+  formatYamlRef.current = formatYaml
 
   // Update activeFileIdRef SYNCHRONOUSLY during render so it's current before
   // React's commit phase. This is critical: when the key changes on the Editor,
@@ -138,7 +163,7 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
     }
   }, [cancelPendingTimers])
 
-  const handleEditorMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
+  const handleEditorMount = (editor: monaco.editor.IStandaloneCodeEditor, monacoApi: typeof monaco) => {
     editorRef.current = editor
     // Ensure the per-file identity ref reflects the file this editor was
     // mounted for, regardless of the order between this onMount and the
@@ -188,6 +213,10 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
       resizeObserverRef.current?.disconnect()
       resizeObserverRef.current = ro
     }
+    // Ctrl+S formats YAML only when the editor is focused
+    editor.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS, () => {
+      formatYamlRef.current()
+    })
     setEditorReady(true)
   }
 
@@ -402,6 +431,23 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
               {validationErrors.length}
             </Badge>
           )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={formatYaml}
+                  disabled={!hasResolvedFile}
+                  className="h-8"
+                  data-testid="format-yaml-btn"
+                >
+                  <Wand2 className="h-4 w-4" />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Format YAML (Ctrl+S)</TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <span>
