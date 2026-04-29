@@ -14,6 +14,33 @@ A web UI for editing Prometheus YAML configuration files. Provides a visual edit
 
 ## Getting Started
 
+### Using Docker Compose (Recommended for Production)
+
+The easiest way to run Promui is via Docker Compose.
+
+```bash
+docker-compose up -d
+```
+
+This will build and start the container, exposing the UI at `http://localhost:3000`.
+
+Your configurations will be read from and saved to the `./configs/` directory on your host machine. Version history is saved to `./.config-history/`.
+
+### Using Docker CLI
+
+```bash
+# Build the image
+docker build -t promui .
+
+# Run the container
+docker run -p 3000:3000 \
+  -v $(pwd)/configs:/app/configs \
+  -v $(pwd)/.config-history:/app/.config-history \
+  promui
+```
+
+### Local Development
+
 ```bash
 npm install
 npm run dev

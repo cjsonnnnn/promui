@@ -1,0 +1,14 @@
+services:
+  promui:
+    build: .
+    container_name: promui
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount your local configs directory to the container
+      - ./configs:/app/configs
+      # Optional: Mount history directory to persist config version history
+      - ./.config-history:/app/.config-history
+    environment:
+      - CONFIG_DIR=/app/configs
+    restart: unless-stopped
