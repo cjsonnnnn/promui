@@ -129,6 +129,7 @@ export function EditorToolbar() {
               <Button
                 variant="outline"
                 size="sm"
+                data-testid="validate-yaml-btn"
                 onClick={handleValidate}
                 disabled={!resolvedFile || isValidating}
               >
@@ -146,6 +147,7 @@ export function EditorToolbar() {
             <span>
               <Button
                 size="sm"
+                data-testid="save-file-btn"
                 disabled={!canSave}
                 onClick={openSaveDialog}
               >

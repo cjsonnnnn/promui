@@ -28,7 +28,7 @@ export function ThemeSelector() {
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-8 w-8 px-0">
+            <Button variant="ghost" size="sm" className="h-8 w-8 px-0" data-testid="theme-selector-btn">
               <Palette className="h-4 w-4" />
               <span className="sr-only">Select theme</span>
             </Button>
@@ -45,6 +45,7 @@ export function ThemeSelector() {
         {/* System option — full width */}
         <button
           type="button"
+          data-testid="theme-option-system"
           onClick={() => setTheme("system")}
           className={cn(
             "mb-2 flex w-full items-center gap-3 rounded-md border px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent",
@@ -74,6 +75,7 @@ export function ThemeSelector() {
             <button
               key={t.id}
               type="button"
+              data-testid={`theme-option-${t.id}`}
               onClick={() => setTheme(t.id)}
               className={cn(
                 "flex flex-col gap-2 rounded-md border p-2 text-left transition-colors hover:bg-accent",

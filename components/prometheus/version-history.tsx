@@ -120,6 +120,7 @@ export function VersionHistory() {
             <Button
               variant="outline"
               size="sm"
+              data-testid="version-history-btn"
               onClick={() => setIsOpen(true)}
               disabled={!hasResolvedFile}
             >

@@ -360,6 +360,8 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
               {files.map((file) => (
                 <div
                   key={file.id}
+                  data-testid="file-item"
+                  data-filename={file.filename}
                   className={cn(
                     "group flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 transition-colors",
                     activeFileId === file.id ? "bg-accent text-accent-foreground" : "hover:bg-muted"
@@ -451,6 +453,7 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
           variant="outline"
           size="sm"
           className="w-full gap-2"
+          data-testid="new-file-btn"
           onClick={() => {
             runWithUnsavedCheck(() => setIsNewFileOpen(true))
           }}
@@ -479,6 +482,7 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
           <DialogFooter className="justify-end gap-3 sm:justify-end">
             <Button
               variant="outline"
+              data-testid="keep-changes-btn"
               onClick={() => {
                 pendingAfterUnsavedRef.current = null
                 setUnsavedDialogOpen(false)
@@ -488,6 +492,7 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
             </Button>
             <Button
               variant="secondary"
+              data-testid="discard-changes-btn"
               onClick={() => {
                 const next = pendingAfterUnsavedRef.current
                 pendingAfterUnsavedRef.current = null
@@ -537,10 +542,10 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsNewFileOpen(false)}>
+            <Button variant="outline" data-testid="create-file-cancel-btn" onClick={() => setIsNewFileOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void tryCreate()}>Create</Button>
+            <Button data-testid="create-file-confirm-btn" onClick={() => void tryCreate()}>Create</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -607,10 +612,10 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameTarget(null)}>
+            <Button variant="outline" data-testid="rename-cancel-btn" onClick={() => setRenameTarget(null)}>
               Cancel
             </Button>
-            <Button onClick={() => void handleRename()}>Rename</Button>
+            <Button data-testid="rename-confirm-btn" onClick={() => void handleRename()}>Rename</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -666,10 +671,10 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+            <Button variant="outline" data-testid="delete-cancel-btn" onClick={() => setDeleteConfirm(null)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && void handleDelete(deleteConfirm)}>
+            <Button variant="destructive" data-testid="delete-confirm-btn" onClick={() => deleteConfirm && void handleDelete(deleteConfirm)}>
               Delete
             </Button>
           </DialogFooter>

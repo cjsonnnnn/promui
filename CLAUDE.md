@@ -14,6 +14,17 @@ The dev script uses `--webpack` explicitly. Turbopack (Next.js 16's default) pan
 
 Playwright browser tests live in `tests/e2e/`. Run them with `npx playwright test` (requires the dev server running or Playwright's `webServer` config will start it). TypeScript strict mode is on, but `next.config.mjs` sets `typescript.ignoreBuildErrors: true`, so the build won't fail on type errors.
 
+**Test coverage specification**: `tests/e2e/README.md` is the authoritative source of truth for all E2E test scenarios. It defines 177 scenarios organized by UI panel:
+
+- **File Explorer** — FM (file management), UC (unsaved-changes guard)
+- **Toolbar** — VAL (validation), SD (save/diff flow), VH (version history), TH (theme selector)
+- **YAML Editor** — ED (editor behaviors), YF (YAML formatting)
+- **Config Tree** — CN (config tree navigation)
+- **Section Editor** — ED-20+ (field editing), PV (prefix view), GR (group management)
+- **Cross-Panel** — CP (multi-panel interactions)
+
+Each scenario has a stable ID (e.g., `FM-01`, `VAL-02`) that maps to a `test()` call in the corresponding spec file. Before implementing a new test, verify whether a scenario ID already exists in the README.
+
 ## Architecture
 
 **promui** is a Next.js 16 (App Router) web UI for editing Prometheus YAML configuration files. It runs a local file server and reads/writes `.yml`/`.yaml` files from a `./configs/` directory (overridable via `CONFIG_DIR` env var). Version snapshots are stored in `./.config-history/` as JSON.

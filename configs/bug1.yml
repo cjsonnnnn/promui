@@ -2,4 +2,10 @@ global:
   scrape_interval: 123s
   evaluation_interval: 15s
 
-scrape_configs: []
+scrape_configs:
+# ========= Ungrouped =========
+  - job_name: h
+    static_configs:
+      - targets:
+          - 32.23.1.5:512
+

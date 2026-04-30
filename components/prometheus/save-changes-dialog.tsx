@@ -399,12 +399,13 @@ export function SaveChangesDialog({
         <DialogFooter className="shrink-0 gap-2 sm:gap-0">
           <Button
             variant="outline"
+            data-testid="save-cancel-btn"
             onClick={() => handleOpenChange(false)}
             disabled={busy}
           >
             Cancel
           </Button>
-          <Button onClick={() => void onConfirm()} disabled={busy}>
+          <Button data-testid="save-confirm-btn" onClick={() => void onConfirm()} disabled={busy}>
             {busy ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
