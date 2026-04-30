@@ -173,6 +173,10 @@ export function EditorToolbar() {
         afterYaml={diffYamls.after}
         saveError={saveError}
         onConfirm={handleSaveConfirm}
+        onAfterYamlChange={(newYaml) => {
+          setDiffYamls((d) => ({ ...d, after: newYaml }))
+          usePrometheusStore.getState().hydrateFromYaml(newYaml)
+        }}
       />
     </>
   )

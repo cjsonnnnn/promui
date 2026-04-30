@@ -1,5 +1,32 @@
 global:
-  scrape_interval: 15s
+  scrape_interval: 312s
   evaluation_interval: 15s
-scrape_configs: []
-rule_files: []
+
+scrape_configs:
+# ========= Ungrouped =========
+  - job_name: wow
+    static_configs:
+      - targets:
+          - 12.1.51.2:3001
+
+  - job_name: wow-copy-copy-copy-copy
+    static_configs:
+      - targets:
+          - 12.1.51.2:3032
+
+# ========= hk =========
+  - job_name: wow-copy
+    static_configs:
+      - targets:
+          - 12.1.51.2:302
+
+  - job_name: wow-copy-copy
+    static_configs:
+      - targets:
+          - 12.1.51.2:304
+
+  - job_name: wow-copy-copy-copy
+    static_configs:
+      - targets:
+          - 12.1.51.2:301
+

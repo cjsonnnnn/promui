@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useMonaco } from "@monaco-editor/react"
 import YAML from "yaml"
+import { useMonacoTheme } from "@/lib/use-monaco-theme"
 
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false })
 
@@ -24,6 +25,7 @@ interface YamlPreviewProps {
 
 export function YamlPreview({ onCollapse }: YamlPreviewProps) {
   const monacoInstance = useMonaco()
+  const monacoTheme = useMonacoTheme()
   const validationErrors = usePrometheusStore((s) => s.validationErrors)
   const activeFileId = usePrometheusStore((s) => s.activeFileId)
   const files = usePrometheusStore((s) => s.files)
@@ -528,7 +530,7 @@ export function YamlPreview({ onCollapse }: YamlPreviewProps) {
             key={`yaml-editor-${activeFileId}`}
             height="100%"
             defaultLanguage="yaml"
-            theme="vs-dark"
+            theme={monacoTheme}
             path={`yaml-${activeFileId}`}
             onMount={handleEditorMount}
             onChange={(value) => {

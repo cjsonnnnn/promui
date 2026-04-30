@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { RefreshCw, Settings } from "lucide-react"
+import { RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import {
   Tooltip,
@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { parseApiResponse } from "@/lib/parse-api-response"
+import { ThemeSelector } from "./theme-selector"
 
 export function TopBar() {
   const [busy, setBusy] = useState(false)
@@ -42,9 +43,7 @@ export function TopBar() {
     <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-chart-1 to-chart-2 flex items-center justify-center">
-            <Settings className="h-4 w-4 text-background" />
-          </div>
+          <img src="/icon.svg" className="h-8 w-8 rounded-lg" alt="" aria-hidden="true" />
           <div>
             <h1 className="text-sm font-semibold">Prometheus Config</h1>
             <p className="text-xs text-muted-foreground">Configuration Manager</p>
@@ -52,22 +51,25 @@ export function TopBar() {
         </div>
       </div>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void handleReloadPrometheus()}
-              disabled={busy}
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${busy ? "animate-spin" : ""}`} />
-              Reload Prometheus
-            </Button>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>POST $PROMETHEUS_URL/-/reload (default port 9090)</TooltipContent>
-      </Tooltip>
+      <div className="flex items-center gap-1">
+        <ThemeSelector />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleReloadPrometheus()}
+                disabled={busy}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${busy ? "animate-spin" : ""}`} />
+                Reload Prometheus
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>POST $PROMETHEUS_URL/-/reload (default port 9090)</TooltipContent>
+        </Tooltip>
+      </div>
     </div>
   )
 }

@@ -46,7 +46,7 @@ Scrape jobs are organized into named groups using `# ===== GroupName =====` comm
 - All Prometheus-domain components live under `components/prometheus/`
 - UI primitives (shadcn/ui wrappers) live under `components/ui/` — avoid modifying these
 - The `cn()` utility from `lib/utils.ts` (clsx + tailwind-merge) is used everywhere for classnames
-- Dark mode is forced at the root HTML element; all color values use OKLch CSS variables defined in `app/globals.css`
+- Theme is managed by `next-themes` (see Theme system below); OKLch CSS variables are defined in `app/globals.css`
 - Path alias `@/` maps to the repo root
 
 ### Validation
@@ -58,6 +58,12 @@ Validation runs on every store mutation via `validateConfig()`. It checks Promet
 **Prefix View** (`components/prometheus/editors/scrape-configs-editor.tsx`): Toggles between group-based and job-name-prefix-based views of scrape jobs. The button uses `variant="default"` (filled) when active and `variant="outline"` when inactive, with `aria-pressed` reflecting the state.
 
 **YAML formatting** (`components/prometheus/yaml-preview.tsx`): The YAML preview panel has a Format button (wand icon) and a Ctrl+S shortcut that only fires when the Monaco editor is focused. Formatting works by calling `hydrateFromYaml(currentValue)` then `exportYaml()` — this routes through the app's canonical serializer (`stringifyScrapeConfigsGrouped`) so group header comments are preserved. If the current YAML is syntactically invalid, a toast error is shown and the editor is unchanged. Ctrl+S outside the editor has no effect.
+
+**Diff revert** (`components/prometheus/save-changes-dialog.tsx`): The save dialog shows an inline diff view (custom renderer, no Monaco) where each changed block — context lines above/below, removed lines in red with `−`, added lines in green with `+` — has a small inline `↺ revert` button that appears on hover at the top-right of that block. Clicking it replaces that block in `afterYaml` with the original lines, recomputes the diff, and calls `onAfterYamlChange` so `EditorToolbar` can sync the reverted YAML to the store via `hydrateFromYaml`. Revert controls appear only when `onAfterYamlChange` is provided; the history-restore dialog omits it so that dialog is read-only. Hidden unchanged regions are collapsed with `··· N unchanged lines ···` separators.
+
+**Theme system** (`components/prometheus/theme-selector.tsx`, `app/globals.css`, `lib/themes.ts`): Six themes are defined in `lib/themes.ts`: Dark, Light, Darker, Soft (warm gray), Ocean (blue-tinted), High Contrast. Each has CSS variable overrides in `globals.css` (classes `.dark`, `.darker`, `.soft`, `.ocean`, `.high-contrast`; `:root` is the light base) and a Monaco theme mapping. The `@custom-variant dark` covers all dark-family classes. `ThemeSelector` in the TopBar opens a Popover with color-swatch cards for each theme plus a System option. `lib/use-monaco-theme.ts` maps the resolved theme to `"vs"`, `"vs-dark"`, or `"hc-black"`. Default theme is dark; preference persists in localStorage via next-themes.
+
+**App icon** (`public/icon.svg`): A Prometheus flame icon — orange rounded-square background with a white outer flame and orange inner flame. Used as the browser favicon and in the TopBar header.
 
 ## Deployment
 
