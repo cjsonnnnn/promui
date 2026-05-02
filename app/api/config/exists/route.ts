@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import fs from 'node:fs/promises'
 import { NextRequest } from 'next/server'
 import { apiFail, apiOk } from '@/lib/api-route'
@@ -23,3 +24,4 @@ export async function GET(request: NextRequest) {
     return apiFail((error as Error).message || 'Failed to check file')
   }
 }
+

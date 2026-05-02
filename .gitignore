@@ -15,9 +15,17 @@ node_modules
 .next/
 .DS_Store
 
-# Local per-file version snapshots (optional; keep out of git if desired)
+# Local per-file version snapshots and configs
 .config-history/
+configs/
+*.yml
+*.yaml
+!docker-compose.yml
+!pnpm-lock.yaml
+!.github/
 
-# test-result
-test-results/*
-configs/*
+# test results
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

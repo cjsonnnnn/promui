@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { apiFail, apiOk } from '@/lib/api-route'
 import { listConfigFiles } from '@/lib/config-fs'
 
@@ -9,3 +10,4 @@ export async function GET() {
     return apiFail((error as Error).message || 'Failed to list config files')
   }
 }
+

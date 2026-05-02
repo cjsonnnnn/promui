@@ -664,7 +664,7 @@ export const usePrometheusStore = create<PrometheusStore>()((set, get) => ({
         if (await get().fileExists(t)) {
           return { success: false, conflict: true, error: 'File already exists' }
         }
-        const yaml = YAML.stringify(defaultConfig, { indent: 2 })
+        const yaml = exportYamlFromState(defaultConfig, [])
         const saved = await get().saveYamlToDisk(t, yaml)
         if (!saved.success) return { success: false, error: saved.error }
         await get().refreshFiles()
@@ -1707,3 +1707,4 @@ usePrometheusStore.subscribe((state, prevState) => {
     state.validateConfig()
   }
 })
+

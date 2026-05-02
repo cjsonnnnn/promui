@@ -129,6 +129,7 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
   const [conflict, setConflict] = useState<ConflictState>(null)
   const [conflictRename, setConflictRename] = useState("")
   const [conflictError, setConflictError] = useState("")
+  const [renameError, setRenameError] = useState("")
   const [refreshSpin, setRefreshSpin] = useState(false)
   const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false)
   const pendingAfterUnsavedRef = useRef<(() => Promise<void>) | null>(null)
@@ -166,21 +167,25 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
       return
     }
     const name = normalizeFilename(newFilename)
-    const result = await createNewFile(name)
-    if (result.conflict) {
-      setConflict({ kind: "new", filename: name })
-      setConflictRename(name.replace(/\.ya?ml$/i, "") + "-copy.yml")
-      setConflictError("")
+    try {
+      const result = await createNewFile(name)
+      if (result.conflict) {
+        setConflict({ kind: "new", filename: name })
+        setConflictRename(name.replace(/\.ya?ml$/i, "") + "-copy.yml")
+        setConflictError("")
+        setErrorMessage("")
+        return
+      }
+      if (!result.success) {
+        setErrorMessage(result.error || "Failed to create file")
+        return
+      }
       setErrorMessage("")
-      return
+      setIsNewFileOpen(false)
+      setNewFilename("")
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to create file")
     }
-    if (!result.success) {
-      setErrorMessage(result.error || "Failed to create file")
-      return
-    }
-    setErrorMessage("")
-    setIsNewFileOpen(false)
-    setNewFilename("")
   }
 
   const tryUpload = async (file: File, content: string) => {
@@ -226,15 +231,15 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
     if (!renameTarget) return
     const validationError = describeFilenameError(renameValue)
     if (validationError) {
-      setErrorMessage(validationError)
+      setRenameError(validationError)
       return
     }
     const result = await renameFile(renameTarget, normalizeFilename(renameValue))
     if (!result.success) {
-      setErrorMessage(result.error || "Failed to rename file")
+      setRenameError(result.error || "Failed to rename file")
       return
     }
-    setErrorMessage("")
+    setRenameError("")
     setRenameTarget(null)
     setRenameValue("")
   }
@@ -455,7 +460,11 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
           className="w-full gap-2"
           data-testid="new-file-btn"
           onClick={() => {
-            runWithUnsavedCheck(() => setIsNewFileOpen(true))
+            runWithUnsavedCheck(() => {
+              setNewFilename("")
+              setErrorMessage("")
+              setIsNewFileOpen(true)
+            })
           }}
         >
           <Plus className="h-3.5 w-3.5" />
@@ -588,7 +597,7 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
           if (!open) {
             setRenameTarget(null)
             setRenameValue("")
-            setErrorMessage("")
+            setRenameError("")
           }
         }}
       >
@@ -610,6 +619,7 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
                 Will be saved as <span className="font-mono">{renamePreview}</span>
               </p>
             )}
+            {renameError && <p className="text-xs text-destructive">{renameError}</p>}
           </div>
           <DialogFooter>
             <Button variant="outline" data-testid="rename-cancel-btn" onClick={() => setRenameTarget(null)}>
