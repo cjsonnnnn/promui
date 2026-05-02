@@ -522,7 +522,7 @@ export function ScrapeConfigsEditor() {
       )}
 
       {/* Content */}
-      <ScrollArea className={cn("flex-1", isDisabled && "pointer-events-none opacity-50")}>
+      <ScrollArea className={cn("min-h-0 flex-1", isDisabled && "pointer-events-none opacity-50")}>
         {showGroupView && groupedJobs ? (
           <div className="p-4 space-y-4">
             {prefixEntries.map(([prefix, jobs]) => {
@@ -532,10 +532,12 @@ export function ScrapeConfigsEditor() {
               const someInPrefixSelected = jobs.some(j => selectedJobs.has(j.id)) && !allInPrefixSelected
               return (
                 <div key={prefix} className="rounded-lg border border-border">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between bg-muted px-4 py-2 text-left"
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className="flex w-full cursor-pointer items-center justify-between bg-muted px-4 py-2 text-left"
                     onClick={() => toggleBundleSection(sid)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleBundleSection(sid) }}
                   >
                     <div className="flex items-center gap-2">
                       <Checkbox
@@ -553,7 +555,7 @@ export function ScrapeConfigsEditor() {
                       <span className="font-medium">{prefix}-*</span>
                       <Badge variant="secondary">{jobs.length} jobs</Badge>
                     </div>
-                  </button>
+                  </div>
                   {!bundleCollapsed ? (
                     <div className="divide-y divide-border">
                       {jobs.map((job) => (
@@ -593,10 +595,12 @@ export function ScrapeConfigsEditor() {
               const someInGroupSelected = section.jobs.some(j => selectedJobs.has(j.id)) && !allInGroupSelected
               return (
                 <div key={section.key} className="rounded-lg border border-border">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between bg-muted px-4 py-2 text-left"
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className="flex w-full cursor-pointer items-center justify-between bg-muted px-4 py-2 text-left"
                     onClick={() => toggleBundleSection(sid)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleBundleSection(sid) }}
                   >
                     <div className="flex items-center gap-2">
                       <Checkbox
@@ -614,7 +618,7 @@ export function ScrapeConfigsEditor() {
                       <span className="font-medium">{section.label}</span>
                       <Badge variant="secondary">{section.jobs.length} jobs</Badge>
                     </div>
-                  </button>
+                  </div>
                   {!bundleCollapsed ? (
                     <div className="divide-y divide-border">
                       {section.jobs.map((job) => (

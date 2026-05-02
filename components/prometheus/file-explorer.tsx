@@ -352,7 +352,7 @@ export function FileExplorer({ onCollapse }: FileExplorerProps) {
         </Badge>
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="p-2">
           {files.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">

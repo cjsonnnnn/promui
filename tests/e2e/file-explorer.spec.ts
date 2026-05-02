@@ -509,4 +509,51 @@ test.describe('File Explorer Panel', () => {
       await page.getByTestId('keep-changes-btn').click()
     })
   })
+
+  // --- Scroll ------------------------------------------------------------------
+
+  test('FM-34 List scrolls when overflowed', async ({ page }) => {
+    // 15 sequential file creates can exceed the default 30s timeout.
+    test.setTimeout(90_000)
+
+    // Dismiss any Next.js dev-mode overlay that may be blocking the UI.
+    const closeOverlay = page.locator('button[data-nextjs-errors-dialog-close-button], nextjs-portal button').first()
+    if (await closeOverlay.isVisible().catch(() => false)) {
+      await closeOverlay.click({ force: true })
+      await page.waitForTimeout(300)
+    }
+    // Also close via Escape in case it's a dialog-style overlay.
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(200)
+
+    // Create enough files to overflow the panel's visible height.
+    // We use force:true so the Next.js dev-mode overlay never blocks clicks.
+    const names: string[] = []
+    for (let i = 0; i < 15; i++) {
+      const base = uniqueName('fm34')
+      await page.getByTestId('new-file-btn').click({ force: true })
+      // Wait for the dialog input specifically (survives animation delays).
+      const input = page.getByRole('dialog').getByPlaceholder('prometheus')
+      await expect(input).toBeVisible()
+      await input.fill(base)
+      await page.getByTestId('create-file-confirm-btn').click({ force: true })
+      await expect(page.getByRole('dialog')).toBeHidden()
+      names.push(`${base}.yml`)
+    }
+
+    const first = names[0]
+    const last = names[names.length - 1]
+
+    // Click the first item so the panel starts at the top.
+    await fileItem(page, first).scrollIntoViewIfNeeded()
+    await fileItem(page, first).click({ force: true })
+
+    // The last file is off-screen. Scroll it into view and verify it is
+    // reachable and can be activated — proving the list is scrollable.
+    await fileItem(page, last).scrollIntoViewIfNeeded()
+    await expect(fileItem(page, last)).toBeVisible()
+    await fileItem(page, last).click({ force: true })
+    await page.waitForTimeout(400)
+    await expect(fileItem(page, last)).toHaveClass(/bg-accent/)
+  })
 })

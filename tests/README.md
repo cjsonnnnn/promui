@@ -35,13 +35,13 @@ npx playwright test -g "CP-04"
 
 | Panel          | Scenarios                                                                           | Description                                                                                      |
 | -------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| File Explorer  | 41 (FM-01–FM-33, UC-01–UC-08)                                                       | File lifecycle, filename validation, upload, refresh, conflict resolution, unsaved changes guard |
+| File Explorer  | 42 (FM-01–FM-34, UC-01–UC-08)                                                       | File lifecycle, filename validation, upload, refresh, conflict resolution, unsaved changes guard |
 | Toolbar        | 59 (VAL-01–VAL-11, SD-01–SD-05, SD-10–SD-22, VH-01–VH-03, VH-10–VH-21, TH-01–TH-15) | Active file display, validate, save + diff dialog, version history + restore, theme selection    |
 | YAML Editor    | 24 (ED-01–ED-16, YF-01–YF-08)                                                       | Raw editing, undo, format, copy/download, line count, validation markers                         |
 | Config Tree    | 8 (CN-01–CN-08)                                                                     | Section navigation, active indicators, panel collapse and expand                                 |
 | Section Editor | 23 (ED-20–ED-30, PV-01–PV-06, GR-01–GR-06)                                          | Form editing, job CRUD, job validation, prefix view, YAML group management                       |
 | Cross-Panel    | 22 (CP-01–CP-22)                                                                    | State sync and content integrity across panel boundaries                                         |
-| **Total**      | **177**                                                                             |                                                                                                  |
+| **Total**      | **178**                                                                             |                                                                                                  |
 
 ---
 
@@ -145,6 +145,7 @@ The left panel. Users manage config files here: create, select, rename, duplicat
 | FM-31 | Conflict dialog — new valid name resolves conflict | User enters a unique name and confirms             | File created with new name; conflict and create dialogs both close |
 | FM-32 | Conflict dialog — entering another existing name   | User types a name that also exists                 | Error "That filename also exists" shown in conflict dialog         |
 | FM-33 | Duplicate file — cancel                            | User opens duplicate dialog then clicks Cancel     | Dialog closes; no copy created; original file unchanged            |
+| FM-34 | List scrolls when overflowed                       | Many files exist, exceeding panel height           | List is scrollable; off-screen items can be reached and selected   |
 
 #### Unsaved Changes Guard
 
