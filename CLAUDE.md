@@ -14,6 +14,10 @@ The dev script uses `--webpack` explicitly. Turbopack (Next.js 16's default) pan
 
 Playwright browser tests live in `tests/e2e/`. Run them with `npx playwright test` (requires the dev server running or Playwright's `webServer` config will start it). TypeScript strict mode is on, but `next.config.mjs` sets `typescript.ignoreBuildErrors: true`, so the build won't fail on type errors.
 
+The Playwright config enforces `workers: 1` (serial execution) and registers `tests/global-setup.ts` which deletes all `.yml` files from `configs/` before each run. Both are load-bearing: parallel workers can kill a shared dev server mid-run, and accumulated config files from prior runs slow API calls past timeouts.
+
+Test helpers live in `tests/e2e/utils/helpers.ts`. When writing tests that require a dirty editor (e.g., UC unsaved-changes scenarios), use `setEditorValue(page, yaml)` with a **semantically different** YAML value — not a comment-only change. `canonicalYamlFingerprint` in `lib/yaml-canonical.ts` calls `YAML.parse()` which strips comments, so comment-only edits are invisible to dirty detection.
+
 **Test coverage specification**: `tests/e2e/README.md` is the authoritative source of truth for all E2E test scenarios. It defines 177 scenarios organized by UI panel:
 
 - **File Explorer** — FM (file management), UC (unsaved-changes guard)
@@ -37,7 +41,7 @@ Key store concepts:
 - `scrapeConfigs` — the in-memory list of scrape jobs (separate from `config.scrape_configs` to enable grouping)
 - `originalYaml` — baseline YAML string used for dirty detection
 - `yamlTouchCounter` / `flushEditorYamlToStore` — mechanism to sync Monaco editor content back into the store before saves
-- `peekUnsavedYaml()` — checks whether Monaco has edits not yet flushed to store
+- `peekUnsavedYaml()` — checks whether Monaco has edits not yet flushed to store; compares `canonicalYamlFingerprint` values, so comment-only changes do **not** count as dirty
 - `hydrateFromYaml()` / `exportYaml()` — the canonical parse/serialize path
 
 ### API routes (`app/api/`)

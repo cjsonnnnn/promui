@@ -14,7 +14,13 @@ export async function POST(request: NextRequest) {
       return apiOk({ filename: to })
     }
 
-    await fs.rename(filePathFor(from), filePathFor(to))
+    const toPath = filePathFor(to)
+    const exists = await fs.access(toPath).then(() => true).catch(() => false)
+    if (exists) {
+      return apiFail('A file with that name already exists.', 409)
+    }
+
+    await fs.rename(filePathFor(from), toPath)
     await renameHistory(from, to)
     return apiOk({ filename: to })
   } catch (error) {

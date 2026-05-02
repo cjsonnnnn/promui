@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test'
 import {
-  appendInEditor,
   createFile,
   fileItem,
   openRowMenu,
   selectFile,
+  setEditorValue,
   uniqueName,
   waitForApp,
 } from './utils/helpers'
@@ -437,8 +437,10 @@ test.describe('File Explorer Panel', () => {
       const a = await createFile(page, uniqueName('uc-a'))
       const b = await createFile(page, uniqueName('uc-b'))
       await selectFile(page, a)
-      const dirty = await appendInEditor(page, '\n# unsaved')
-      if (!dirty) test.skip(true, 'Monaco not available in this environment')
+      // Comment-only changes ('\n# unsaved') are stripped by the canonical YAML
+      // fingerprinter and won't trigger the unsaved-changes guard. Use a semantic
+      // change (different scrape_interval) to reliably dirty the editor.
+      await setEditorValue(page, 'global:\n  scrape_interval: 30s\n  evaluation_interval: 30s\n')
       return { a, b }
     }
 

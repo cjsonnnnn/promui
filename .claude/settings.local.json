@@ -5,7 +5,8 @@
       "Bash(npx playwright *)",
       "Bash(echo \"EXIT:$?\")",
       "Read(//c/Users/cjson/AppData/Local/ms-playwright/chromium-1217/chrome-win64/**)",
-      "Bash(\"C:\\\\Users\\\\cjson\\\\AppData\\\\Local\\\\ms-playwright\\\\chromium-1217\\\\chrome-win64\\\\chrome.exe\" --version)"
+      "Bash(\"C:\\\\Users\\\\cjson\\\\AppData\\\\Local\\\\ms-playwright\\\\chromium-1217\\\\chrome-win64\\\\chrome.exe\" --version)",
+      "Bash(wait *)"
     ]
   }
 }
