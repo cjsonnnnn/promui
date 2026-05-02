@@ -17,3 +17,7 @@ node_modules
 
 # Local per-file version snapshots (optional; keep out of git if desired)
 .config-history/
+
+# test-result
+test-results/*
+configs/*
