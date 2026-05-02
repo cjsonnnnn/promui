@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"test\\\\\\(['\\\\\"\\\\`]\\(FM-|UC-|VAL-|SD-|VH-|TH-|ED-|YF-|CN-|PV-|GR-|CP-\\)[0-9]+\" tests/e2e/file-explorer.spec.ts tests/e2e/toolbar.spec.ts tests/e2e/yaml-editor.spec.ts tests/e2e/config-tree.spec.ts tests/e2e/section-editor.spec.ts tests/e2e/cross-panel.spec.ts)",
+      "Bash(npx playwright *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Read(//c/Users/cjson/AppData/Local/ms-playwright/chromium-1217/chrome-win64/**)",
+      "Bash(\"C:\\\\Users\\\\cjson\\\\AppData\\\\Local\\\\ms-playwright\\\\chromium-1217\\\\chrome-win64\\\\chrome.exe\" --version)"
+    ]
+  }
+}
